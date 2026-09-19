@@ -11,7 +11,7 @@ RootModule = 'UserSettings.psm1'
 ModuleVersion = '1.0.0'
 
 # Supported PSEditions
-CompatiblePSEditions = @('Desktop')
+CompatiblePSEditions = @('Desktop', 'Core')
 
 # ID used to uniquely identify this module
 GUID = '5d4e3f2a-1b0c-4e9f-8a7d-6c5b4a3e2f10'
@@ -38,7 +38,8 @@ FunctionsToExport = @(
     'Get-UserSetting',
     'Set-UserSetting',
     'Get-UserSoundPath',
-    'Get-UserSkipIntro'
+    'Get-UserSkipIntro',
+    'Get-UserUseExternalTimer'
 )
 
 # Cmdlets to export from this module

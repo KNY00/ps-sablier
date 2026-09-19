@@ -31,11 +31,47 @@ function Show-CurrentSettings {
     }
 
     $skipIntroDisplay = if ($settings.SkipIntroduction) { "Enabled ($true)" } else { "Disabled ($false)" }
+    $timerModeDisplay = if ($settings.UseExternalTimer) { "External Binary (timer.exe)" } else { "Built-in Fallback (Sand Timer)" }
 
     Write-Host "`n=== Active Settings ===" -ForegroundColor Cyan
-    Write-Host " Sound File Path   : $soundDisplay" -ForegroundColor Gray
-    Write-Host " Skip Introduction : $skipIntroDisplay" -ForegroundColor Gray
+    Write-Host " Sound File Path    : $soundDisplay" -ForegroundColor Gray
+    Write-Host " Skip Introduction  : $skipIntroDisplay" -ForegroundColor Gray
+    Write-Host " Timer Progress Bar : $timerModeDisplay" -ForegroundColor Gray
     Write-Host ""
+}
+
+function Update-TimerTypeWorkflow {
+    $settings = Get-UserSetting
+    $currentStatus = if ($settings.UseExternalTimer) { "External Binary (timer.exe)" } else { "Built-in Fallback (Sand Timer)" }
+    Write-Host "`nCurrent Timer Mode: $currentStatus" -ForegroundColor Cyan
+
+    $options = @(
+        "Use Built-in Fallback Timer (Recommended)",
+        "Use External Timer Binary (timer.exe)",
+        "Cancel"
+    )
+
+    $choice = Show-Menu -Title "Choose progress bar style:" -Options $options
+
+    switch ($choice) {
+        "Use Built-in Fallback Timer (Recommended)" {
+            Set-UserSetting -UseExternalTimer $false
+            Show-SuccessMessage "Progress bar set to Built-in Fallback Timer."
+        }
+        "Use External Timer Binary (timer.exe)" {
+            Show-WarningMessage "SECURITY NOTICE: Downloading and executing third-party binaries may pose security risks."
+            $confirm = Confirm-Action -Message "Are you sure you want to enable the external binary timer?"
+            if ($confirm) {
+                Set-UserSetting -UseExternalTimer $true
+                Show-SuccessMessage "External binary timer enabled."
+            } else {
+                Write-Host "Operation cancelled." -ForegroundColor Yellow
+            }
+        }
+        "Cancel" {
+            Write-Host "Update cancelled." -ForegroundColor Yellow
+        }
+    }
 }
 
 function Update-SoundFilePathWorkflow {
@@ -117,6 +153,7 @@ function Update-SkipIntroductionWorkflow {
 function Show-SettingsMenu {
     $menuOptions = @(
         "View Current Settings",
+        "Configure Timer Progress Bar",
         "Update SoundFilePath",
         "Disable Sound Alerts ($false)",
         "Configure Skip Introduction",
@@ -127,7 +164,6 @@ function Show-SettingsMenu {
         Clear-Host
         $choice = Show-Menu -Title "=== Settings Manager ===" -Options $menuOptions
 
-        # Exit and return to caller (Start.ps1) if Escape was pressed or Exit selected
         if ([string]::IsNullOrWhiteSpace($choice) -or $choice -eq "Exit") {
             return
         }
@@ -135,6 +171,11 @@ function Show-SettingsMenu {
         switch ($choice) {
             "View Current Settings" {
                 Show-CurrentSettings
+                Pause
+            }
+
+            "Configure Timer Progress Bar" {
+                Update-TimerTypeWorkflow
                 Pause
             }
 

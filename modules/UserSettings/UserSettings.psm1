@@ -6,6 +6,7 @@ $script:ConfigFile = Join-Path $script:ConfigDir "settings.json"
 $script:DefaultSettings = [ordered]@{
     SoundFilePath    = $false
     SkipIntroduction = $false
+    UseExternalTimer = $false
 }
 
 function Get-UserSetting {
@@ -31,6 +32,9 @@ function Get-UserSetting {
             if (-not ($loadedSettings.PSObject.Properties.Name -contains "SkipIntroduction")) {
                 $loadedSettings | Add-Member -MemberType NoteProperty -Name "SkipIntroduction" -Value $script:DefaultSettings.SkipIntroduction
             }
+            if (-not ($loadedSettings.PSObject.Properties.Name -contains "UseExternalTimer")) {
+                $loadedSettings | Add-Member -MemberType NoteProperty -Name "UseExternalTimer" -Value $script:DefaultSettings.UseExternalTimer
+            }
 
             $loadedSettings
         }
@@ -44,17 +48,12 @@ function Get-UserSetting {
 <#
 .SYNOPSIS
     Retrieves the configured sound file path from user settings.
-
-.DESCRIPTION
-    Loads the user settings and extracts the SoundFilePath property.
-    Returns the sound file path string or $false if sound alert is disabled / unset.
 #>
 function Get-UserSoundPath {
     [CmdletBinding()]
     param()
 
     process {
-        # Retrieve active user configuration
         $settings = Get-UserSetting
         $settings.SoundFilePath
     }
@@ -63,9 +62,6 @@ function Get-UserSoundPath {
 <#
 .SYNOPSIS
     Retrieves whether the startup introduction animation should be skipped.
-
-.OUTPUTS
-    [bool] True if intro animation is skipped, false otherwise.
 #>
 function Get-UserSkipIntro {
     [CmdletBinding()]
@@ -78,10 +74,24 @@ function Get-UserSkipIntro {
     }
 }
 
+<#
+.SYNOPSIS
+    Retrieves whether the external timer tool should be used over the fallback timer.
+#>
+function Get-UserUseExternalTimer {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    process {
+        $settings = Get-UserSetting
+        [bool]$settings.UseExternalTimer
+    }
+}
+
 function Set-UserSetting {
     [CmdletBinding()]
     param(
-        # Validate that SoundFilePath is either a string or boolean $false
         [Parameter(Mandatory = $false)]
         [ValidateScript({
             if ($_ -is [string] -and -not [string]::IsNullOrWhiteSpace($_)) {
@@ -94,21 +104,20 @@ function Set-UserSetting {
         })]
         [object]$SoundFilePath,
 
-        # Flag to toggle skipping the startup introduction animation
         [Parameter(Mandatory = $false)]
-        [Nullable[bool]]$SkipIntroduction
+        [Nullable[bool]]$SkipIntroduction,
+
+        [Parameter(Mandatory = $false)]
+        [Nullable[bool]]$UseExternalTimer
     )
 
     process {
-        # Ensure the target directory exists
         if (-not (Test-Path -LiteralPath $script:ConfigDir)) {
             New-Item -Path $script:ConfigDir -ItemType Directory -Force | Out-Null
         }
 
-        # Load existing settings or start fresh
         $current = Get-UserSetting
 
-        # Update the properties preserving existing values when parameters are omitted
         $targetSound = if ($PSBoundParameters.ContainsKey('SoundFilePath')) {
             $SoundFilePath
         } else {
@@ -123,20 +132,27 @@ function Set-UserSetting {
             $script:DefaultSettings.SkipIntroduction
         }
 
+        $targetExternalTimer = if ($PSBoundParameters.ContainsKey('UseExternalTimer')) {
+            [bool]$UseExternalTimer
+        } elseif ($current.PSObject.Properties.Name -contains "UseExternalTimer") {
+            [bool]$current.UseExternalTimer
+        } else {
+            $script:DefaultSettings.UseExternalTimer
+        }
+
         $settingsObject = [ordered]@{
             SoundFilePath    = $targetSound
             SkipIntroduction = $targetSkipIntro
+            UseExternalTimer = $targetExternalTimer
         }
 
-        # Preserve any extra properties that might already exist in the file
         foreach ($prop in $current.PSObject.Properties) {
-            if ($prop.Name -notin @("SoundFilePath", "SkipIntroduction")) {
+            if ($prop.Name -notin @("SoundFilePath", "SkipIntroduction", "UseExternalTimer")) {
                 $settingsObject[$prop.Name] = $prop.Value
             }
         }
 
         try {
-            # Convert object to JSON and persist to disk
             $settingsObject | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $script:ConfigFile -Encoding utf8 -ErrorAction Stop
             Write-Verbose "Settings successfully saved to '$script:ConfigFile'."
         }
@@ -146,4 +162,9 @@ function Set-UserSetting {
     }
 }
 
-Export-ModuleMember -Function Get-UserSetting, Get-UserSoundPath, Get-UserSkipIntro, Set-UserSetting
+Export-ModuleMember -Function `
+    Get-UserSetting, `
+    Get-UserSoundPath, `
+    Get-UserSkipIntro, `
+    Get-UserUseExternalTimer, `
+    Set-UserSetting

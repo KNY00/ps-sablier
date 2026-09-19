@@ -15,6 +15,12 @@ $version = "1.4.6"
 $repo = "caarlos0/timer"
 $tag = "v$version"
 
+# Trusted SHA256 checksums from the official checksums.txt release manifest
+$script:KnownChecksums = @{
+    "timer_windows_amd64.zip" = "0c204022ecb58b8d5b37f2459c4797c8560eed0b3f43c6bf2bdd8a59d234e030"
+    "timer_windows_arm64.zip" = "d99e04f0ee99144331330f862d0576e723b949ff16909d9f8b6e994cd7019f72"
+}
+
 # Resolve project root tools directory relative to this script
 $targetDir = Join-Path $PSScriptRoot "bin"
 
@@ -33,6 +39,7 @@ try {
     Write-Host "Resolving download URL for timer $tag..."
 
     $downloadUrl = $null
+    $assetFileName = $null
     $headers = @{ "User-Agent" = "PowerShell-ps-sablier" }
 
     # Attempt to dynamically resolve asset download URL via GitHub API
@@ -45,6 +52,7 @@ try {
 
         if ($asset) {
             $downloadUrl = $asset.browser_download_url
+            $assetFileName = $asset.name
         }
     } catch {
         # Fallback to direct URL formats if API rate limit is exceeded
@@ -54,10 +62,10 @@ try {
     # If API resolution failed, try candidate direct release URLs
     if (-not $downloadUrl) {
         $candidateUrls = @(
-            "https://github.com/$repo/releases/download/$tag/timer_${version}_Windows_x86_64.zip",
-            "https://github.com/$repo/releases/download/$tag/timer_Windows_x86_64.zip",
+            "https://github.com/$repo/releases/download/$tag/timer_windows_amd64.zip",
             "https://github.com/$repo/releases/download/$tag/timer_${version}_windows_amd64.zip",
-            "https://github.com/$repo/releases/download/$tag/timer_windows_amd64.zip"
+            "https://github.com/$repo/releases/download/$tag/timer_${version}_Windows_x86_64.zip",
+            "https://github.com/$repo/releases/download/$tag/timer_Windows_x86_64.zip"
         )
 
         foreach ($url in $candidateUrls) {
@@ -68,6 +76,7 @@ try {
                 $res = $testReq.GetResponse()
                 if ($res.StatusCode -eq 200) {
                     $downloadUrl = $url
+                    $assetFileName = [System.IO.Path]::GetFileName($url)
                     $res.Close()
                     break
                 }
@@ -85,6 +94,25 @@ try {
     # Download release archive
     Write-Host "Downloading from $downloadUrl..."
     Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -Headers $headers -UseBasicParsing
+
+    # Verify cryptographic integrity (SHA256 checksum)
+    Write-Host "Verifying archive integrity (SHA256)..."
+    $calculatedHash = (Get-FileHash -LiteralPath $tempZip -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    # Match against known checksums based on resolved asset name or standard amd64 zip
+    $expectedHash = $null
+    if ($assetFileName -and $script:KnownChecksums.ContainsKey($assetFileName)) {
+        $expectedHash = $script:KnownChecksums[$assetFileName]
+    } else {
+        # Default fallback for Windows AMD64 binary
+        $expectedHash = $script:KnownChecksums["timer_windows_amd64.zip"]
+    }
+
+    if ($calculatedHash -ine $expectedHash) {
+        throw "Security Error: Hash mismatch for '$tempZip'. Expected: $expectedHash, Actual: $calculatedHash"
+    }
+
+    Show-SuccessMessage "SHA256 checksum successfully verified ($calculatedHash)."
 
     # Extract the archive
     Write-Host "Extracting archive..."

@@ -1,14 +1,61 @@
 [CmdletBinding()]
 param (
-    # Total duration of the countdown in seconds (default: 10s)
+    # Duration string matching external timer format (e.g., 5s, 8m, 13h, 1h30m)
     [Parameter(Mandatory = $false, Position = 0)]
-    [ValidateRange(1, [double]::MaxValue)]
-    [double]$DurationSeconds = 10,
+    [ValidateNotNullOrEmpty()]
+    [string]$Duration = "25m",
 
     # Display name of the active session
     [Parameter(Mandatory = $false, Position = 1)]
-    [string]$SessionName = "Session"
+    [string]$SessionName = "Session",
+
+    # Path used to store session metadata (unified with Start-Timer.ps1)
+    [Parameter(Mandatory = $false)]
+    [ValidateNotNullOrEmpty()]
+    [string]$ResultFile = "$env:TEMP\timer_result.json"
 )
+
+<#
+.SYNOPSIS
+    Parses a duration string (e.g. 5s, 8m, 13h, 1h30m45s) into total seconds.
+#>
+function Convert-DurationToSeconds {
+    [CmdletBinding()]
+    [OutputType([double])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$DurationString
+    )
+
+    $trimmed =$DurationString.Trim().ToLower()
+
+    # Match compound duration tokens (e.g., 1h30m, 8m, 45s)
+    $strMatches = [regex]::Matches($trimmed, '(\d+(?:\.\d+)?)\s*([smhd])')
+    
+    if ($strMatches.Count -gt 0) {$totalSeconds = 0.0
+        foreach ($match in $strMatches) {
+            $value = [double]::Parse($match.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            $unit =$match.Groups[2].Value
+
+            switch ($unit) {
+                's' { $totalSeconds +=$value }
+                'm' { $totalSeconds += ($value * 60) }
+                'h' { $totalSeconds += ($value * 3600) }
+                'd' { $totalSeconds += ($value * 86400) }
+            }
+        }
+        return [math]::Max(1.0, $totalSeconds)
+    }
+
+    # Fallback if a plain numeric value without unit was entered (default to minutes)
+    $parsedNum = 0.0
+    if ([double]::TryParse($trimmed, [ref]$parsedNum) -and$parsedNum -gt 0) {
+        return ($parsedNum * 60)
+    }
+
+    # Fallback to default 25 minutes if input cannot be parsed
+    return (25 * 60)
+}
 
 <#
 .SYNOPSIS
@@ -40,6 +87,7 @@ function Format-SessionHeader {
 .SYNOPSIS
     Builds the textual representation of the sand progress bar based on elapsed progress ratio.
 #>
+
 function Get-SandProgressBar {
     [CmdletBinding()]
     [OutputType([string])]
@@ -51,7 +99,22 @@ function Get-SandProgressBar {
         [int]$TotalWidth = 60
     )
 
-    $sandPhases = @(' ', '.', ':', '░', '▒', '▓', '█')
+    # Use hex codes for V7 to ensure the PS 5.1 parser does not crash on UTF-8 without BOM
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+        $sandPhases = @(
+            ' ', 
+            '.', 
+            ':', 
+            [string][char]0x2591, 
+            [string][char]0x2592, 
+            [string][char]0x2593, 
+            [string][char]0x2588
+        )
+    } else {
+        # Simplified ASCII UI for PowerShell 5.1
+        $sandPhases = @(' ', '-', '~', '=', '#')
+    }
+    
     $phasesCount = $sandPhases.Count - 1
     $totalStates = $TotalWidth * $phasesCount
 
@@ -64,12 +127,12 @@ function Get-SandProgressBar {
     $phaseIndex = $currentState % $phasesCount
 
     if ($completedBlocks -ge $TotalWidth) {
-        $solidString = $sandPhases[-1] * $TotalWidth
+        $solidString = [string]$sandPhases[-1] * $TotalWidth
         return "[$solidString] 100%"
     }
 
-    $solidString = $sandPhases[-1] * $completedBlocks
-    $activeChar = $sandPhases[$phaseIndex]
+    $solidString = [string]$sandPhases[-1] * $completedBlocks
+    $activeChar = [string]$sandPhases[$phaseIndex]
     $remainder = [math]::Max(0, $TotalWidth - $completedBlocks - 1)
     $emptyString = " " * $remainder
 
@@ -202,5 +265,23 @@ function Show-SandLoadingBar {
     }
 }
 
+# Resolve target duration in seconds from the input string
+$totalDurationSeconds = Convert-DurationToSeconds -DurationString $Duration
+
+# Record session start time
+$SessionStart = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
 # Execute countdown bar
-Show-SandLoadingBar -DurationSeconds $DurationSeconds -SessionName $SessionName
+Show-SandLoadingBar -DurationSeconds $totalDurationSeconds -SessionName $SessionName
+
+# Record session end time
+$SessionEnd = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+# Export session metadata to shared JSON file
+if (-not [string]::IsNullOrWhiteSpace($ResultFile)) {
+    [PSCustomObject]@{
+        StartedAt   = $SessionStart
+        EndedAt     = $SessionEnd
+        IsCompleted = 1
+    } | ConvertTo-Json -Compress | Set-Content -Path $ResultFile -Encoding UTF8
+}
