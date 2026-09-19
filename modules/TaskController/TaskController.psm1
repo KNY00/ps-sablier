@@ -92,7 +92,8 @@ function Get-TaskItem {
     )
 
     if ($PSCmdlet.ParameterSetName -eq "ById") {
-        $query = "SELECT id, title, notes, is_completed, due_date, created_at, completed_at FROM tasks WHERE id = $Id;"
+        $query = "SELECT id, title, notes, is_completed, due_date, created_at, completed_at FROM tasks WHERE id = @Id;"
+        $rawResults = Invoke-SqliteWrapper -Query $query -Parameters @{ Id = $Id } -DatabasePath $DatabasePath -AsJson
     } else {
         $whereClause = switch ($Status) {
             "Pending"   { "WHERE is_completed = 0" }
@@ -100,9 +101,9 @@ function Get-TaskItem {
             Default     { "" }
         }
         $query = "SELECT id, title, notes, is_completed, due_date, created_at, completed_at FROM tasks $whereClause ORDER BY created_at DESC;"
+        $rawResults = Invoke-SqliteWrapper -Query $query -DatabasePath $DatabasePath -AsJson
     }
 
-    $rawResults = Invoke-SqliteWrapper -Query $query -DatabasePath $DatabasePath -AsJson
     $items = [System.Collections.Generic.List[TaskItem]]::new()
 
     foreach ($item in $rawResults) {
@@ -232,16 +233,16 @@ function Remove-TaskItem {
 PRAGMA foreign_keys = ON;
 BEGIN TRANSACTION;
 DELETE FROM time_sessions 
-WHERE id IN (SELECT time_session_id FROM task_time_sessions WHERE task_id = $Id);
+WHERE id IN (SELECT time_session_id FROM task_time_sessions WHERE task_id = @Id);
 
 DELETE FROM task_time_sessions 
-WHERE task_id = $Id;
+WHERE task_id = @Id;
 
 DELETE FROM tasks 
-WHERE id = $Id;
+WHERE id = @Id;
 COMMIT;
 "@
-    $result = Invoke-SqliteWrapper -Query $deleteQuery -DatabasePath $DatabasePath
+    $result = Invoke-SqliteWrapper -Query $deleteQuery -Parameters @{ Id = $Id } -DatabasePath $DatabasePath
     [bool]$result
 }
 
@@ -264,7 +265,7 @@ SELECT
     s.type AS session_type,
     datetime(s.started_at, 'unixepoch', 'localtime') AS started_at,
     CASE 
-        WHEN s.ended_at IS NOT NULL THEN datetime(s.ended_at, 'unixepoch', 'localtime')
+        WHEN s.ended_at IS NOT NULL THEN datetime(ended_at, 'unixepoch', 'localtime')
         ELSE 'ACTIVE' 
     END AS ended_at,
     COALESCE(s.ended_at - s.started_at, CAST(strftime('%s', 'now') AS INTEGER) - s.started_at) AS duration_seconds,
@@ -273,11 +274,11 @@ SELECT
 FROM tasks t
 INNER JOIN task_time_sessions tts ON t.id = tts.task_id
 INNER JOIN time_sessions s ON tts.time_session_id = s.id
-WHERE t.id = $TaskId
+WHERE t.id = @TaskId
 ORDER BY s.started_at DESC;
 "@
 
-    $result = Invoke-SqliteWrapper -Query $query -DatabasePath $DatabasePath -AsJson
+    $result = Invoke-SqliteWrapper -Query $query -Parameters @{ TaskId = $TaskId } -DatabasePath $DatabasePath -AsJson
     @($result)
 }
 

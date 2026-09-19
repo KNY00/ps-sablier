@@ -1,91 +1,43 @@
-function Install-SqliteCli {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true, Position = 0)]
-        [ValidateNotNullOrEmpty()]
-        [string]$FilePath
-    )
-
-    process {
-        # Check target architecture
-        $arch = $env:PROCESSOR_ARCHITECTURE
-        $targetScript = $null
-
-        if ($arch -eq 'ARM64') {
-            $targetScript = Join-Path -Path $PSScriptRoot -ChildPath 'scripts/Install-Arm64.ps1'
-        }
-        elseif ($arch -in @('AMD64', 'x86_64')) {
-            $targetScript = Join-Path -Path $PSScriptRoot -ChildPath 'scripts/Install-Amd64.ps1'
-        }
-        else {
-            throw "Unsupported system architecture: $arch. Only AMD64 and ARM64 are supported."
-        }
-
-        if (-not (Test-Path -Path $targetScript)) {
-            throw "Installation script could not be found at: $targetScript"
-        }
-
-        # Execute the architecture-specific script
-        & $targetScript -FilePath $FilePath
-    }
-}
-
-
-function Install-PSSqlite {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param ()
-
-    try {
-        Install-Module -Name "PSSQLite" -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
-        return $true
-    }
-    catch {
-        return $false
-    }
-}
-
-function Test-PSSqliteInstalled {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param ()
-
-    $module = Get-Module -ListAvailable -Name "PSSQLite" -ErrorAction SilentlyContinue
-    [bool]$module
-}
-
 <#
 .SYNOPSIS
-    Determines the available SQLite backend mechanism on the system.
+    SQLite Verification Module.
 
 .DESCRIPTION
-    Checks if the sqlite3 CLI tool or the PSSQLite PowerShell module is installed,
-    returning the appropriate backend type ('CLI', 'PSSQLite', or 'None').
-
-.OUTPUTS
-    [string] The name of the available backend ('CLI', 'PSSQLite', or 'None').
+    Provides functions to check for required managed and native SQLite 
+    dependencies for the SQLiteLoader module using .NET assemblies.
 #>
-function Get-SqliteBackend {
+
+function Test-SqliteDotNetInstalled {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([bool])]
     param ()
 
-    if (Get-Command -Name "sqlite3" -CommandType Application -ErrorAction SilentlyContinue) {
-        "CLI"
-        return
+    # Resolve project root
+    $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $runtimesDir = Join-Path $projectRoot "modules\SQLiteLoader\runtimes"
+
+    # Architecture verification
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    $nativeSubDir = if ($arch -eq 'ARM64') { "win-arm64\native\e_sqlite3.dll" } else { "win-x64\native\e_sqlite3.dll" }
+
+    $managedDllCandidates = @(
+        (Join-Path $runtimesDir "any\lib\net8.0\Microsoft.Data.Sqlite.dll"),
+        (Join-Path $runtimesDir "any\lib\netstandard2.0\Microsoft.Data.Sqlite.dll")
+    )
+
+    $hasManaged = $false
+
+    foreach ($cand in $managedDllCandidates) {
+        if (Test-Path -LiteralPath $cand -PathType Leaf) {
+            $hasManaged = $true
+            break
+        }
     }
 
-    if (Test-PSSqliteInstalled) {
-        "PSSQLite"
-        return
-    }
+    $nativePath = Join-Path $runtimesDir $nativeSubDir
+    $hasNative = Test-Path -LiteralPath $nativePath -PathType Leaf
 
-    "None"
+    return ($hasManaged -and $hasNative)
 }
 
-
-Export-ModuleMember -Function `
-    Install-SqliteCli, `
-    Install-PSSqlite,
-    Test-PSSqliteInstalled,
-    Get-SqliteBackend
+Export-ModuleMember -Function Test-SqliteDotNetInstalled

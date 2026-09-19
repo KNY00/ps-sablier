@@ -12,17 +12,35 @@ if ($ToolsBinDir -notin $currentEnvPaths) {
     $env:PATH = "$ToolsBinDir$([System.IO.Path]::PathSeparator)$env:PATH"
 }
 
-& ".\tools\Install-Sqlite.ps1"
+# Verify that SQLite backend and driver are available and usable without downloading
+Import-Module CheckDependencies -ErrorAction Stop
+Test-SqliteAvailable | Out-Null
 
 & ".\tools\Initialize-Database.ps1"
 
-& ".\tools\Install-Timer.ps1"
+# Check if timer binary is already available in PATH
+$timerAvailable = [bool](Get-Command -Name "timer" -CommandType Application -ErrorAction SilentlyContinue)
+
+if (-not $timerAvailable) {
+    Show-InfoMessage "Optional Component: External timer binary (timer.exe)."
+    Show-WarningMessage "SECURITY NOTICE: Downloading third-party binaries from the web can present security risks."
+    Show-InfoMessage "This download is completely OPTIONAL. The application includes a built-in fallback sand timer that works out of the box."
+
+    $shouldDownload = Confirm-Action -Message "Do you wish to download the external timer anyway?"
+    if ($shouldDownload) {
+        & ".\tools\Install-Timer.ps1"
+        Set-UserSetting -UseExternalTimer $true
+        Show-SuccessMessage "External timer downloaded and enabled in settings."
+    } else {
+        Set-UserSetting -UseExternalTimer $false
+        Show-InfoMessage "Skipping external timer download. Using built-in fallback timer."
+    }
+}
 
 try {
     Test-ProjectPrerequisite
     Write-Host 'Up and Running!'
 }
 catch {
-    # Output error details if validation or command resolution fails
     Write-Error "Bootstrap failed: $_"
 }

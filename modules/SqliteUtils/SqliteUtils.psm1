@@ -4,6 +4,20 @@ $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 # Resolve default database path relative to project structure
 $script:DatabasePath = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot "assets\db.sqlite"))
 
+# Ensure SQLiteLoader is ready
+if (-not (Get-Module -Name "SQLiteLoader")) {
+    Import-Module SQLiteLoader -ErrorAction SilentlyContinue
+}
+
+<#
+.SYNOPSIS
+    Resolves and returns the full path to the SQLite database.
+.DESCRIPTION
+    Retrieves the path configured in $script:DatabasePath, attempting to resolve it 
+    via Resolve-Path if it exists, or returning the fallback path.
+.OUTPUTS
+    [string] The absolute path to the SQLite database file.
+#>
 function Get-SqliteDatabasePath {
     [CmdletBinding()]
     [OutputType([string])]
@@ -11,31 +25,21 @@ function Get-SqliteDatabasePath {
 
     $resolved = (Resolve-Path -Path $script:DatabasePath -ErrorAction SilentlyContinue).Path
     if ($resolved) {
-        $resolved
-        return
+        return $resolved
     }
-    $script:DatabasePath
+    return $script:DatabasePath
 }
 
 <#
 .SYNOPSIS
-    Validates whether the SQLite database file exists on disk.
-
+    Validates that the SQLite database file exists at the specified path.
 .DESCRIPTION
-    Checks the existence of the database file at the given path.
-    Outputs an error message and returns $false if the file is absent, otherwise returns $true.
-
+    Checks if the database file exists using Test-Path. If the file is missing, 
+    displays an error message and returns $false.
 .PARAMETER Path
-    The file path to the SQLite database. Defaults to the result of Get-SqliteDatabasePath.
-
+    The path to the SQLite database. Defaults to the result of Get-SqliteDatabasePath.
 .OUTPUTS
-    [bool] True if the database file exists, false otherwise.
-
-.EXAMPLE
-    Assert-SqliteDatabasePath
-
-.EXAMPLE
-    Assert-SqliteDatabasePath -Path "assets/db.sqlite"
+    [bool] Returns $true if the database exists, otherwise $false.
 #>
 function Assert-SqliteDatabasePath {
     [CmdletBinding()]
@@ -47,22 +51,35 @@ function Assert-SqliteDatabasePath {
 
     if (-not (Test-Path -Path $Path)) {
         Show-ErrorMessage "Database file '$Path' not found."
-        $false
-        return
+        return $false
     }
-    $true
+    return $true
 }
 
-function Write-SqliteError {
-    Show-ErrorMessage "No valid SQLite backend found. Please install sqlite3 or PSSQLite."
-    Show-InfoMessage "Run ./bootstrap.ps1 to install dependencies."
-    throw "Missing SQLite backend."
-}
-
+<#
+.SYNOPSIS
+    Unified query execution wrapper relying exclusively on Microsoft.Data.Sqlite (.NET).
+.DESCRIPTION
+    Initializes the SQLite driver, opens a connection to the database, safely binds parameters,
+    and executes either a non-query command or a query returning results (optionally as structured objects).
+.PARAMETER Query
+    The SQL query or statement to execute.
+.PARAMETER Parameters
+    A hashtable or dictionary of parameters to bind to the SQL query. Parameter keys 
+    automatically get prefixed with '@' if not already present.
+.PARAMETER DatabasePath
+    The path to the SQLite database file. Defaults to Get-SqliteDatabasePath.
+.PARAMETER AsJson
+    When specified, executes a reader, fetches all rows into ordered custom objects, and returns an array.
+    When omitted, executes a non-query command and returns $true on success or $false on failure.
+.OUTPUTS
+    [object[]] An array of PSCustomObjects if -AsJson is specified.
+    [bool] $true on successful non-query execution, or $false on error.
+#>
 function Invoke-SqliteWrapper {
     <#
     .SYNOPSIS
-        Unified query execution wrapper supporting both sqlite3 CLI and PSSQLite with parameter support.
+        Unified query execution wrapper relying exclusively on Microsoft.Data.Sqlite (.NET).
     #>
     [CmdletBinding()]
     param (
@@ -79,93 +96,60 @@ function Invoke-SqliteWrapper {
         [switch]$AsJson
     )
 
-    $backend = Get-SqliteBackend
+    # Initialize .NET driver if not active
+    Initialize-SqliteDriver | Out-Null
 
-    if ($backend -eq "CLI") {
-        # Securely interpolate parameters for SQLite CLI fallback
-        $sanitizedQuery = $Query
+    $connString = "Data Source=$DatabasePath"
+    $connection = [Microsoft.Data.Sqlite.SqliteConnection]::new($connString)
+
+    try {
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandText = $Query
+
+        # Bind parameters safely
         if ($Parameters -and $Parameters.Count -gt 0) {
             foreach ($key in $Parameters.Keys) {
+                $cleanKey = if ($key.StartsWith("@")) { $key } else { "@$key" }
                 $val = $Parameters[$key]
-                $paramName = if ($key.StartsWith("@")) { $key } else { "@$key" }
-                
-                $sqlLiteral = if ($null -eq $val -or $val -is [System.DBNull]) {
-                    "NULL"
-                } elseif ($val -is [bool]) {
-                    if ($val) { "1" } else { "0" }
-                } elseif ($val -is [byte] -or $val -is [int] -or $val -is [long] -or $val -is [double] -or $val -is [decimal]) {
-                    "$val"
-                } else {
-                    "'" + ([string]$val).Replace("'", "''") + "'"
-                }
-                
-                # Replace parameter token ensuring boundaries
-                $pattern = [regex]::Escape($paramName) + '(?!\w)'
-                $sanitizedQuery = [regex]::Replace($sanitizedQuery, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ $sqlLiteral })
+                $dbVal = if ($null -eq $val) { [System.DBNull]::Value } else { $val }
+                $null = $command.Parameters.AddWithValue($cleanKey, $dbVal)
             }
         }
 
         if ($AsJson) {
-            $processOutput = & sqlite3 -json $DatabasePath $sanitizedQuery 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Show-ErrorMessage "SQLite CLI Error: $processOutput"
-                @()
-                return
+            $reader = $command.ExecuteReader()
+            $rows = [System.Collections.Generic.List[PSObject]]::new()
+
+            while ($reader.Read()) {
+                $rowObj = [ordered]@{}
+                for ($i = 0; $i -lt $reader.FieldCount; $i++) {
+                    $fieldName = $reader.GetName($i)
+                    $val = if ($reader.IsDBNull($i)) { $null } else { $reader.GetValue($i) }
+                    $rowObj[$fieldName] = $val
+                }
+                $rows.Add([PSCustomObject]$rowObj)
             }
-            if ($processOutput) {
-                $rawJson = $processOutput -join "`n"
-                $deserialized = $rawJson | ConvertFrom-Json
-                @($deserialized)
-                return
-            }
-            @()
-            return
+            $reader.Dispose()
+            return @($rows)
         } else {
-            $null = & sqlite3 $DatabasePath $sanitizedQuery 2>&1
-            ($LASTEXITCODE -eq 0)
-            return
+            $null = $command.ExecuteNonQuery()
+            return $true
         }
     }
-    elseif ($backend -eq "PSSQLite") {
-        try {
-            $invokeParams = @{
-                DataSource  = $DatabasePath
-                Query       = $Query
-                ErrorAction = 'Stop'
-            }
-
-            if ($Parameters -and $Parameters.Count -gt 0) {
-                # Format parameters for PSSQLite
-                $queryParameters = @{}
-                foreach ($key in $Parameters.Keys) {
-                    $cleanKey = if ($key.StartsWith("@")) { $key.Substring(1) } else { $key }
-                    $val = $Parameters[$key]
-                    $queryParameters[$cleanKey] = if ($null -eq $val) { [System.DBNull]::Value } else { $val }
-                }
-                $invokeParams['QueryParameters'] = $queryParameters
-            }
-
-            $result = PSSQLite\Invoke-SqliteQuery @invokeParams
-
-            if ($AsJson) {
-                if ($null -eq $result) {
-                    @()
-                    return
-                }
-                @($result)
-                return
-            } else {
-                $true
-                return
-            }
+    catch {
+        Show-ErrorMessage "SQLite .NET execution error: $_"
+        if ($AsJson) {
+            return @()
         }
-        catch {
-            Show-ErrorMessage "PSSQLite execution error: $_"
-            $false
-            return
+        return $false
+    }
+    finally {
+        if ($null -ne $command) { $command.Dispose() }
+        if ($null -ne $connection) {
+            $connection.Close()
+            $connection.Dispose()
         }
-    } else {
-        Write-SqliteError
     }
 }
 

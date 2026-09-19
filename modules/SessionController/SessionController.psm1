@@ -62,9 +62,9 @@ SELECT
     is_completed,
     COALESCE(notes, '') AS notes
 FROM time_sessions 
-WHERE id = $Id;
+WHERE id = @Id;
 "@
-        $raw = @(Invoke-SqliteWrapper -Query $query -DatabasePath $DatabasePath -AsJson)
+        $raw = @(Invoke-SqliteWrapper -Query $query -Parameters @{ Id = $Id } -DatabasePath $DatabasePath -AsJson)
         if ($raw -and $raw.Count -gt 0) {
             $first = $raw[0]
             if ($null -ne $first) {
@@ -87,9 +87,9 @@ SELECT
     COALESCE(notes, '') AS notes
 FROM time_sessions
 ORDER BY id DESC
-LIMIT $Limit;
+LIMIT @Limit;
 "@
-        $result = Invoke-SqliteWrapper -Query $query -DatabasePath $DatabasePath -AsJson
+        $result = Invoke-SqliteWrapper -Query $query -Parameters @{ Limit = $Limit } -DatabasePath $DatabasePath -AsJson
         return @($result)
     }
 }
@@ -107,7 +107,17 @@ function New-TimeSessionItem {
         [long]$StartedAt,
 
         [Parameter(Mandatory = $false)]
-        [Nullable[long]]$EndedAt = $null,
+        [ValidateScript({
+            if ($null -eq $_) { return $true }
+            
+            try {
+                $null = [long]$_
+                return $true
+            } catch {
+                throw "EndedAt must be a numeric timestamp. If passing a database path, please use the -DatabasePath parameter explicitly."
+            }
+        })]
+        $EndedAt = $null,
 
         [Parameter(Mandatory = $false)]
         [ValidateSet(0, 1)]
@@ -120,8 +130,12 @@ function New-TimeSessionItem {
         [string]$DatabasePath = (Get-SqliteDatabasePath)
     )
 
-    if ($null -ne $EndedAt -and $EndedAt -lt $StartedAt) {
-        throw "EndedAt timestamp ($EndedAt) cannot be earlier than StartedAt ($StartedAt)."
+    $resolvedEndedAt = $null
+    if ($null -ne $EndedAt -and [string]$EndedAt -ne "") {
+        $resolvedEndedAt = [long]$EndedAt
+        if ($resolvedEndedAt -lt $StartedAt) {
+            throw "EndedAt timestamp ($resolvedEndedAt) cannot be earlier than StartedAt ($StartedAt)."
+        }
     }
 
     $insertQuery = @"
@@ -131,7 +145,7 @@ VALUES (@Type, @StartedAt, @EndedAt, @IsCompleted, @Notes);
     $parameters = @{
         Type        = $Type
         StartedAt   = $StartedAt
-        EndedAt     = if ($null -ne $EndedAt) { [long]$EndedAt } else { $null }
+        EndedAt     = $resolvedEndedAt
         IsCompleted = $IsCompleted
         Notes       = if ([string]::IsNullOrWhiteSpace($Notes)) { $null } else { $Notes }
     }
@@ -141,23 +155,16 @@ VALUES (@Type, @StartedAt, @EndedAt, @IsCompleted, @Notes);
         return $null
     }
 
-    Write-Host $inserted
-
     $rowIdQuery = "SELECT MAX(id) AS id FROM time_sessions;"
     $rowIdResult = Invoke-SqliteWrapper -Query $rowIdQuery -DatabasePath $DatabasePath -AsJson
     if (-not $rowIdResult -or $rowIdResult.Count -eq 0) {
         return $null
     }
     
-    # Safe property extraction compatible PS5 & PS7
     $targetObj = $rowIdResult | Select-Object -First 1
     $newId = [int64]$targetObj.id
 
-    Write-Host $newId
-
     $existing = Get-TimeSessionItem -Id $newId -DatabasePath $DatabasePath
-
-    Write-Host $existing
     return ($existing | Select-Object -First 1)
 }
 
@@ -178,10 +185,15 @@ function Add-TaskSessionLink {
     $sqlQuery = @"
 PRAGMA foreign_keys = ON;
 INSERT OR REPLACE INTO task_time_sessions (task_id, time_session_id)
-VALUES ($TaskId, $SessionId);
+VALUES (@TaskId, @SessionId);
 "@
 
-    $success = Invoke-SqliteWrapper -Query $sqlQuery -DatabasePath $DatabasePath
+    $parameters = @{
+        TaskId    = $TaskId
+        SessionId = $SessionId
+    }
+
+    $success = Invoke-SqliteWrapper -Query $sqlQuery -Parameters $parameters -DatabasePath $DatabasePath
     [bool]$success
 }
 
@@ -199,11 +211,11 @@ function Remove-TimeSessionItem {
     $sqlQuery = @"
 PRAGMA foreign_keys = ON;
 BEGIN TRANSACTION;
-DELETE FROM task_time_sessions WHERE time_session_id = $Id;
-DELETE FROM time_sessions WHERE id = $Id;
+DELETE FROM task_time_sessions WHERE time_session_id = @Id;
+DELETE FROM time_sessions WHERE id = @Id;
 COMMIT;
 "@
-    $result = Invoke-SqliteWrapper -Query $sqlQuery -DatabasePath $DatabasePath
+    $result = Invoke-SqliteWrapper -Query $sqlQuery -Parameters @{ Id = $Id } -DatabasePath $DatabasePath
     [bool]$result
 }
 
@@ -225,10 +237,10 @@ SELECT
     t.title AS task_title
 FROM task_time_sessions tts
 INNER JOIN tasks t ON tts.task_id = t.id
-WHERE tts.time_session_id = $SessionId;
+WHERE tts.time_session_id = @SessionId;
 "@
 
-    $raw = Invoke-SqliteWrapper -Query $query -DatabasePath $DatabasePath -AsJson
+    $raw = Invoke-SqliteWrapper -Query $query -Parameters @{ SessionId = $SessionId } -DatabasePath $DatabasePath -AsJson
     $links = [System.Collections.Generic.List[TaskSessionLink]]::new()
     foreach ($item in $raw) {
         $links.Add([TaskSessionLink]::new($item))
@@ -249,18 +261,17 @@ function Remove-TaskSessionLinkBySessionId {
 
     $sqlQuery = @"
 PRAGMA foreign_keys = ON;
-DELETE FROM task_time_sessions WHERE time_session_id = $SessionId;
+DELETE FROM task_time_sessions WHERE time_session_id = @SessionId;
 "@
-    $result = Invoke-SqliteWrapper -Query $sqlQuery -DatabasePath $DatabasePath
+    $result = Invoke-SqliteWrapper -Query $sqlQuery -Parameters @{ SessionId = $SessionId } -DatabasePath $DatabasePath
     [bool]$result
 }
-
 
 function Set-TimeSessionItem { 
     [CmdletBinding()] 
     [OutputType([TimeSessionItem])] 
     param ( 
-        [Parameter(Mandatory = $true, Position = 0)] 
+        [Parameter(Mandatory = $true, Position = 0)]
         [long]$Id, 
 
         [Parameter(Mandatory = $false)] 
@@ -293,27 +304,27 @@ function Set-TimeSessionItem {
     $setClauses = @() 
     $params = @{ Id = $Id } 
 
-    if ($PSBoundParameters.ContainsKey('Type')) { 
+    if ($PSBoundParameters.ContainsKey('Type')) {
         $setClauses += "type = @Type" 
         $params['Type'] = $Type 
     } 
 
-    if ($PSBoundParameters.ContainsKey('StartedAt') -and $null -ne $StartedAt) { 
+    if ($PSBoundParameters.ContainsKey('StartedAt') -and $null -ne $StartedAt) {
         $setClauses += "started_at = @StartedAt" 
         $params['StartedAt'] = $StartedAt 
     } 
 
-    if ($PSBoundParameters.ContainsKey('EndedAt')) { 
+    if ($PSBoundParameters.ContainsKey('EndedAt')) {
         $setClauses += "ended_at = @EndedAt" 
         $params['EndedAt'] = if ($null -ne $EndedAt) { [long]$EndedAt } else { $null } 
     } 
 
-    if ($PSBoundParameters.ContainsKey('IsCompleted') -and $null -ne $IsCompleted) { 
+    if ($PSBoundParameters.ContainsKey('IsCompleted') -and $null -ne $IsCompleted) {
         $setClauses += "is_completed = @IsCompleted" 
         $params['IsCompleted'] = $IsCompleted 
     } 
 
-    if ($PSBoundParameters.ContainsKey('Notes')) { 
+    if ($PSBoundParameters.ContainsKey('Notes')) {
         $setClauses += "notes = @Notes" 
         $params['Notes'] = if ([string]::IsNullOrWhiteSpace($Notes)) { $null } else { $Notes } 
     } 

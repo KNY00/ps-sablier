@@ -1,16 +1,17 @@
 #
 # Module manifest for module 'CheckDependencies'
 # Generated for ps-sablier
+#
 
 @{
 
 RootModule = 'CheckDependencies.psm1'
 
 # Version number of this module
-ModuleVersion = '1.0.0'
+ModuleVersion = '2.0.0'
 
 # Supported PSEditions
-CompatiblePSEditions = @('Desktop')
+CompatiblePSEditions = @('Desktop', 'Core')
 
 # ID used to uniquely identify this module
 GUID = 'b7f1d4a8-6c3e-4f12-98a0-2d8e4f15a9b2'
@@ -25,20 +26,19 @@ CompanyName = 'ps-sablier'
 Copyright = '(c) 2026. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'Pre-flight dependency validation for tools, binaries (timer.exe), and SQLite backends.'
+Description = 'Pre-flight dependency validation for tools, binaries (timer.exe), and .NET SQLite driver.'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '5.1'
 
 # Modules that must be imported into the global environment prior to importing this module
-RequiredModules = @('UiNotificationUtils', 'SqliteUtils', 'SqliteInstaller', 'MenuUtils')
+RequiredModules = @('UiNotificationUtils', 'SqliteUtils', 'SqliteInstaller', 'SQLiteLoader', 'MenuUtils')
 
 FunctionsToExport = @(
     'Initialize-ProjectEnvironment',
     'Test-ProjectPrerequisite',
     'Test-Timer',
-    'Test-SqliteAvailable', `
-    'Confirm-SqliteAvailable'
+    'Test-SqliteAvailable'
 )
 
 # Cmdlets to export from this module
@@ -53,7 +53,7 @@ AliasesToExport = @()
 # Private data to pass to the module specified in RootModule
 PrivateData = @{
     PSData = @{
-        Tags = @('Dependencies', 'Validation', 'CLI', 'Preflight', 'Timer', 'SQLite')
+        Tags = @('Dependencies', 'Validation', 'Preflight', 'Timer', 'SQLite')
         ProjectURI = ''
     }
 }

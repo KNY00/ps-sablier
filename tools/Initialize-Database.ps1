@@ -65,6 +65,11 @@ try {
     Show-SuccessMessage "Database successfully initialized at '$DatabasePath'."
 }
 catch {
+    $e = $_.Exception
+    while ($e.InnerException) {
+        $e = $e.InnerException
+        Write-Host "InnerException: $($e.GetType().FullName) - $($e.Message)" -ForegroundColor Yellow
+    }
     Show-ErrorMessage "Failed to initialize database: $_"
     exit 1
 }

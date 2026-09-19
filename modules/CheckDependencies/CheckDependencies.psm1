@@ -1,13 +1,23 @@
-# Ensure required dependencies are imported if running standalone outside module path
-$requiredModules = @('UiNotificationUtils', 'SqliteUtils', 'SqliteInstaller', 'MenuUtils')
+<#
+.SYNOPSIS
+    Manages module dependencies, environment initialization, and prerequisite validation for the project.
+
+.DESCRIPTION
+    This module ensures that all required utility and SQLite modules are loaded, configures the
+    system PATH with local project binaries, and validates SQLite and database prerequisites.
+#>
+
+# Ensure required dependencies are imported
+$requiredModules = @('UiNotificationUtils', 'SqliteUtils', 'SqliteInstaller', 'SQLiteLoader', 'MenuUtils')
+
 foreach ($moduleName in $requiredModules) {
     if (-not (Get-Module -Name $moduleName)) {
-        # Attempt standard import first; fallback to sibling directory relative to PSScriptRoot
         try {
             Import-Module $moduleName -ErrorAction Stop
         }
         catch {
             $siblingManifest = Join-Path (Split-Path -Parent $PSScriptRoot) "$moduleName\$moduleName.psd1"
+            
             if (Test-Path -LiteralPath $siblingManifest) {
                 Import-Module $siblingManifest -ErrorAction Stop
             }
@@ -20,25 +30,24 @@ foreach ($moduleName in $requiredModules) {
 
 <#
 .SYNOPSIS
-    Inspects tools/bin directory, verifies it contains binaries, and appends it to PATH.
+    Initializes the project environment paths.
+
+.DESCRIPTION
+    Checks if the project's local 'tools\bin' directory contains executables and prepends
+    it to the session's PATH variable if not already present.
 #>
 function Initialize-ProjectEnvironment {
     [CmdletBinding()]
     param ()
 
-    # Resolve project root from module location
     $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $toolsBinDir = Join-Path $projectRoot "tools\bin"
 
-    # Only register tools\bin if the directory exists AND contains executable files
     if (Test-Path -LiteralPath $toolsBinDir) {
         $hasBinaries = Get-ChildItem -LiteralPath $toolsBinDir -Filter "*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-
         if ($hasBinaries) {
             $currentPaths = $env:PATH -split [System.IO.Path]::PathSeparator
-
             if ($toolsBinDir -notin $currentPaths) {
-                # Prepend to PATH so local project binaries take priority
                 $env:PATH = "$toolsBinDir$([System.IO.Path]::PathSeparator)$env:PATH"
             }
         }
@@ -47,43 +56,19 @@ function Initialize-ProjectEnvironment {
 
 <#
 .SYNOPSIS
-    Verifies if a given application executable is present in PATH.
-
-.DESCRIPTION
-    Checks whether the specified executable can be resolved in the system PATH.
-    Returns $true if present, or $false if missing.
-
-.PARAMETER Name
-    The name of the executable to search for.
-
-.OUTPUTS
-    [bool] True if the executable is found in PATH, false otherwise.
-
-.EXAMPLE
-    Test-CommandInPath -Name "timer"
+    Tests whether a given command exists in the system PATH.
 #>
 function Test-CommandInPath {
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory = $true)][string]$Name)
 
-    if (-not (Get-Command -Name $Name -CommandType Application -ErrorAction SilentlyContinue)) {
-        return $false
-    }
-
-    return $true
+    return [bool](Get-Command -Name $Name -CommandType Application -ErrorAction SilentlyContinue)
 }
 
 <#
 .SYNOPSIS
-    Verifies that the timer binary is available in PATH.
-
-.DESCRIPTION
-    Delegates to Test-CommandInPath to ensure the 'timer' executable is accessible.
-    Throws an exception if 'timer' is missing from PATH.
-
-.EXAMPLE
-    Test-Timer
+    Tests whether the 'timer' binary is available in the environment.
 #>
 function Test-Timer {
     [CmdletBinding()]
@@ -94,123 +79,16 @@ function Test-Timer {
         throw "The 'timer' binary was not found in Path."
     }
 
-    Write-Output $true
-    return
+    return $true
 }
 
 <#
 .SYNOPSIS
-    Verifies if the SQLite CLI executable is available in PATH.
-
-.DESCRIPTION
-    Checks whether the specified SQLite command-line executable can be resolved in PATH.
-    Displays an error message and returns $false if missing, otherwise returns $true.
-
-.PARAMETER Executable
-    The name or path of the SQLite executable to locate. Defaults to "sqlite3".
-
-.OUTPUTS
-    [bool] True if the SQLite CLI executable exists in PATH, false otherwise.
-
-.EXAMPLE
-    Test-SqliteCli
-    Test-SqliteCli -Executable "sqlite3"
+    Outputs a standardized error message when SQLite is missing and throws an exception.
 #>
-function Test-SqliteCli {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param (
-        [Parameter(Mandatory = $false)]
-        [string]$Executable = "sqlite3"
-    )
-
-    if (-not (Get-Command $Executable -ErrorAction SilentlyContinue)) {
-        Show-ErrorMessage "The '$Executable' command-line tool was not found in your PATH."
-        $false
-        return
-    }
-    $true
-}
-
-<#
-.SYNOPSIS
-    Validates all prerequisite dependencies for ps-sablier.
-
-.DESCRIPTION
-    Performs pre-flight checks ensuring both the SQLite backend (sqlite3 CLI or PSSQLite)
-    and the external timer binary are accessible before executing workflows.
-
-.EXAMPLE
-    Test-ProjectPrerequisite
-#>
-function Test-ProjectPrerequisite {
-    [CmdletBinding()]
-    param ()
-
-    # Check and prepend tools\bin to PATH if binaries are already present there
-    Initialize-ProjectEnvironment
-
-    try {
-        Test-SqliteAvailable -ErrorAction Stop | Out-Null
-        
-        $DatabasePathExist = Assert-SqliteDatabasePath
-
-        if (-not $DatabasePathExist) {
-            throw "Missing database file."
-        }
-
-        Test-Timer -ErrorAction Stop | Out-Null
-    }
-    catch {
-        # Capture the original error message
-        $originalError = $_.Exception.Message
-
-        # Append actionable guidance
-        Write-Host ""
-        Write-Warning "Run ./bootstrap.ps1 to install dependencies."
-
-        # Throw the combined error message to halt execution
-        throw "$originalError"
-    }
-}
-
-function Assert-PSSqlite {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param ()
-
-    if (Test-PSSqliteInstalled) {
-        return $true
-    }
-
-    Show-InfoMessage "PowerShell module 'PSSQLite' is not installed."
-    $shouldInstall = Confirm-Action -Message "Would you like to install 'PSSQLite' now?"
-
-    if ($shouldInstall) {
-        Show-InfoMessage "Installing PowerShell module 'PSSQLite' from PSGallery..."
-        $installed = Install-PSSqlite
-
-        if ($installed) {
-            Show-SuccessMessage "Module 'PSSQLite' installed successfully."
-        } else {
-            Show-ErrorMessage "Failed to install 'PSSQLite' module." -Details $_.Exception.Message
-        }
-
-        if ($installed -and (Test-PSSqliteInstalled)) {
-            Import-Module -Name "PSSQLite" -ErrorAction SilentlyContinue
-            return $true
-        }
-    }
-
-    Show-ErrorMessage "Workflow stopped: 'PSSQLite' module is required but not installed."
-    throw "Missing required dependency: PSSQLite module."
-}
-
-
 function Write-SqliteError {
-    Show-ErrorMessage "No valid SQLite backend found. Please install sqlite3 or PSSQLite."
-
-    throw "Missing SQLite backend."
+    Show-ErrorMessage "No valid .NET SQLite library found. Embedded Microsoft.Data.Sqlite is missing."
+    throw "Missing SQLite backend (.NET)."
 }
 
 function Test-SqliteAvailable {
@@ -218,37 +96,74 @@ function Test-SqliteAvailable {
     [OutputType([string])]
     param ()
 
-    $backend = Get-SqliteBackend
-
-    if ($backend -eq "None") {
+    # Only .NET implementation presence guarantees availability
+    if (-not (Test-SqliteDotNetInstalled)) {
         Write-SqliteError
     }
 
-    $backend
+    # Initialize driver in session
+    Initialize-SqliteDriver | Out-Null
+    return "DotNet"
 }
 
+<#
+.SYNOPSIS
+    Confirms SQLite availability, offering to install it interactively if missing.
+#>
 function Confirm-SqliteAvailable {
     [CmdletBinding()]
     [OutputType([string])]
     param ()
 
-    $backend = Get-SqliteBackend
-    if ($backend -eq "None") {
-        Show-InfoMessage "Neither 'sqlite3' CLI nor 'PSSQLite' module was found."
-        Assert-PSSqlite
-        $backend = Get-SqliteBackend
+    if (-not (Test-SqliteDotNetInstalled)) {
+        Show-InfoMessage "Embedded .NET SQLite assemblies were not found."
+        
+        $shouldInstall = Confirm-Action -Message "Would you like to download and install embedded .NET SQLite DLLs now?"
+        
+        if ($shouldInstall) {
+            $success = Install-SqliteDotNet
+            
+            if (-not $success) {
+                Write-SqliteError
+            }
+            Show-SuccessMessage "Embedded .NET SQLite assemblies installed successfully."
+        } else {
+            Write-SqliteError
+        }
     }
 
-    if ($backend -eq "None") {
-        Write-SqliteError
-    }
+    Initialize-SqliteDriver | Out-Null
+    return "DotNet"
+}
 
-    $backend
+<#
+.SYNOPSIS
+    Verifies all necessary project prerequisites, including environment setup, SQLite availability, and database path.
+#>
+function Test-ProjectPrerequisite {
+    [CmdletBinding()]
+    param ()
+
+    Initialize-ProjectEnvironment
+
+    try {
+        Test-SqliteAvailable -ErrorAction Stop | Out-Null
+        
+        $databasePathExist = Assert-SqliteDatabasePath
+        if (-not $databasePathExist) {
+            throw "Missing database file."
+        }
+    }
+    catch {
+        $originalError =$_.Exception.Message
+        Write-Host ""
+        Write-Warning "Run ./bootstrap.ps1 to initialize the database or restore project dependencies."
+        throw "$originalError"
+    }
 }
 
 Export-ModuleMember -Function `
     Initialize-ProjectEnvironment, `
     Test-Timer, `
     Test-ProjectPrerequisite, `
-    Test-SqliteAvailable, `
-    Confirm-SqliteAvailable
+    Test-SqliteAvailable
