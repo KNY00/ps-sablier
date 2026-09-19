@@ -1,20 +1,17 @@
-<p align="center">
+<div align="center">
   <img src="assets/icon.png" alt="Project Icon" width="64" height="64" />
-</p>
-
-![PowerShell](https://img.shields.io/badge/PowerShell-%235391FE.svg?style=flat&logo=powershell&logoColor=white)
+</div>
 
 # ps-sablier
 
-> An interactive command-line interface (CLI) application for time management and productivity tracking with local SQLite persistence.
+![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-%235391FE.svg?style=flat&logo=powershell&logoColor=white) ![PowerShell 7.4+](https://img.shields.io/badge/PowerShell-7.4%2B-%235391FE.svg?style=flat&logo=powershell&logoColor=white)
 
-<p align="center">
-  <img src="assets/demo-start-tracking.gif" alt="Centered GIF">
-</p>
 
-## 📋 Overview
+A lightweight, terminal-based focus timer and Pomodoro tracker written in PowerShell. It enables you to organize tasks, log work and break intervals, associate sessions with tasks, and receive desktop audio-visual notifications upon completion.
 
-**ps-sablier** is a command-line tool built with PowerShell (compatible with Windows PowerShell 5.1 and PowerShell 7+). It allows you to track your time with minimal resource usage, running entirely within PowerShell. You can start untimed, open-ended tracking sessions or timed sessions, after which a Windows notification will alert you upon completion. All sessions can be saved to a local SQLite database and linked directly to tasks.
+<div align="center">
+  <img src="assets/demo-start-tracking.gif" alt="Demo Start Tracking" />
+</div>
 
 ### Key Features:
 
@@ -22,59 +19,85 @@
 - 🔔 **Notifications & Sound Alerts**: Native Windows Toast notifications (WinRT) and customizable audio cues (`.wav`) at the end of each session.
 - 📝 **Task Manager**: Create, update, toggle status (Pending / Completed), full-text search, and cascade deletion.
 - 📊 **Session Manager**: Log past sessions manually, inspect recent history, and link tracked intervals to existing tasks.
-- 💾 **Flexible SQLite Persistence**: Native support for the official `sqlite3` CLI or the `PSSQLite` PowerShell module.
-- ⚙ **Custom User Settings**: Persisted local configuration stored in `$env:LOCALAPPDATA/ps-sablier/settings.json`.
 
-## ⚙️ Prerequisites
 
-- **Operating System**: Windows 10 / 11 or Windows Server (supported architectures: `AMD64` / `x86_64`).
-- **PowerShell**: PowerShell 5.1 (Desktop) or PowerShell 7+.
-- **Script Execution Policy**: Ensure PowerShell script execution is enabled for your current user session:
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
+## Architecture & Requirements
 
-> [!IMPORTANT]
+- **Operating System**: Windows 10 / Windows 11 (x64 or ARM64)
+- **PowerShell Version**: Windows PowerShell 5.1 (Desktop) or PowerShell 7.4+ (Core)
+- **Database Engine**: Embedded `Microsoft.Data.Sqlite` (.NET runtime assemblies managed by `SQLiteLoader`)
+- **Pester** *(Development/Testing only)*: Pester version 6.x+ (isolated runner included)
+
+> [!WARNING]
 >
-> **Required Dependencies Before Use:**
-> The application requires two external components to operate:
-> * **An SQLite backend**: The `sqlite3.exe` CLI binary available in `PATH` or the `PSSQLite` PowerShell module.
-> * **The Timer binary**: The `timer.exe` executable available in `PATH` or inside `tools/bin`.
-> If these components are not manually installed, execute the included bootstrap script `.\bootstrap.ps1` to automatically download and configure them.
+> **Breaking Change**: Support for the external `sqlite3` CLI executable and the `PSSQLite` PowerShell module has been completely removed. Database access is handled directly in-process via .NET assemblies.
 
-## 🚀 Installation
+## Project Structure
 
-The project includes an automatic bootstrap script (`bootstrap.ps1`) that sets up all dependencies (downloads SQLite and timer binaries, initializes the database schema, and validates the environment).
-
-1. **Clone or download the repository:**
-```powershell
-git clone https://github.com/KNY00/ps-sablier
-cd ps-sablier
+```text
+ps-sablier/
+├── bootstrap.ps1                 # Dependency preflight, database init, and optional setup
+├── Start.ps1                     # Main interactive CLI entrypoint
+├── assets/
+│   └── db.sqlite                 # Application SQLite database
+├── modules/
+│   ├── CheckDependencies/        # Pre-flight environment and driver validation
+│   ├── MenuUtils/                # Arrow-key navigable console menus
+│   ├── Notification/             # Toast notifications (PS 5.1 & PS 7+) and audio cues
+│   ├── SessionController/        # Time session database controller and DTO models
+│   ├── SessionUtils/             # Interactive prompts for session creation and task linking
+│   ├── SQLiteLoader/             # Architecture-aware .NET SQLite driver and hash verifier
+│   ├── SqliteInstaller/          # Installer for embedded .NET SQLite assemblies
+│   ├── SqliteUtils/              # Unified database execution wrapper using prepared statements
+│   ├── TaskController/           # Task management database controller and DTO models
+│   ├── TimeUtils/                # Interactive arrow-based date and time picker
+│   ├── UiNotificationUtils/      # Formatted console stream messages (Info, Success, Error)
+│   └── UserSettings/             # Local configuration manager (~/AppData/Local/ps-sablier)
+├── src/
+│   ├── Assets/
+│   │   ├── notification-icon.png # Toast notification icon
+│   │   └── schema.sql            # Canonical database schema
+│   ├── Private/Helpers/          # Internal workflow scripts (Timer, Tracking, Animation)
+│   └── Public/                   # Interactive subsystem menus (Tasks, Sessions, Settings)
+├── Tests/
+│   ├── Invoke-AllTests.ps1       # Isolated test runner for Pester 6+
+│   ├── TestHelper.ps1            # Temporary in-memory/isolated database fixtures
+│   ├── SessionController.Tests.ps1
+│   └── TaskController.Tests.ps1
+└── tools/
+    ├── Initialize-Database.ps1   # Applies schema.sql to the database via SqliteUtils
+    ├── Install-Sqlite.ps1        # Ensures .NET SQLite assemblies are downloaded and verified
+    └── Install-Timer.ps1         # Downloads timer.exe with SHA256 checksum verification
 ```
 
+## Getting Started
 
-2. **Run the bootstrap script:**
+### 1. Initialization (`bootstrap.ps1`)
+
+Run the bootstrap script to register internal modules, initialize your SQLite database, and choose your timer preferences:
+
 ```powershell
+# Run the initial environment setup
 .\bootstrap.ps1
 ```
 
+During bootstrap:
 
-This script automatically handles:
-* Downloading and configuring the **SQLite** CLI tool for your system architecture (into `tools/bin`).
-* Downloading the **timer.exe** binary (v1.4.6 from *caarlos0/timer*).
-* Initializing the local database (`assets/db.sqlite`) from the SQL schema (`src/Assets/schema.sql`).
-* Verifying all prerequisites (`Test-ProjectPrerequisite`).
+1. The script verifies that the embedded `.NET SQLite` assemblies are present and initializes the database with `src\Assets\schema.sql`.
+2. The script checks for the external `timer.exe`. If not installed, it displays a security notice and prompts whether you wish to download it.
+3. Choosing **No** configures the application to use the built-in ASCII sand timer (default).
+4. Choosing **Yes** downloads the official binary, validates its SHA256 checksum against the trusted release manifest, and enables it in your configuration.
 
+### 2. Launching the Application
 
-## 🎮 Usage
-
-To launch the interactive CLI interface:
+Start the interactive console dashboard:
 
 ```powershell
+# Launch the main interactive menu
 .\Start.ps1
 ```
 
-An interactive menu navigable with the arrow keys (`↑` / `↓`) and `Enter`:
+Navigate the menus using the **Up/Down Arrow** keys and press **Enter** to confirm your selection.
 
 - **Start Tracking**
   - `session`: Start a countdown timer (default: 25m).
@@ -93,3 +116,35 @@ An interactive menu navigable with the arrow keys (`↑` / `↓`) and `Enter`:
   - Toggle the startup intro animation.
 - **Exit**
   - Quit the application.
+
+
+## Configuration (`Settings`)
+
+Configuration is stored in `%LOCALAPPDATA%\ps-sablier\settings.json`. You can inspect and modify settings directly from the **Settings** menu within `Start.ps1`:
+
+* **Timer Progress Bar**:
+* `Built-in Fallback (Sand Timer)` (*Default*): Self-contained, rendered entirely in ASCII within the terminal.
+* `External Binary (timer.exe)`: Standalone compiled binary placed in `tools\bin`.
+
+
+* **Sound File Path**: Path to a custom `.wav` sound file for notifications, or set to `$false` to fall back to system audio alerts.
+* **Skip Introduction**: Toggle the startup ASCII hourglass animation on or off.
+
+## Running Tests
+
+To run the test suite:
+
+```powershell
+# Execute the isolated test runner 7.x
+pwsh -File .\Tests\Invoke-AllTests.ps1 -Output Detailed
+```
+
+> [!NOTE]
+> **PowerShell & Pester Requirements**: The test suite currently requires **PowerShell 7+** (`pwsh`) and **Pester 6.x+**. Running tests under Windows PowerShell 5.1 is not supported yet.
+
+The runner:
+
+* Tests provided are meant to be executed with Pester 6.+ and Powershell 7.
+* Creates an ephemeral SQLite test database via `TestHelper.ps1`.
+* Executes tests without altering your production `assets\db.sqlite`.
+* Safely closes connection handles and removes the temporary database upon completion.
