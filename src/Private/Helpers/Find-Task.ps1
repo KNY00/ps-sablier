@@ -15,7 +15,34 @@ function Read-SearchTermOrEscape {
     )
 
     Write-Host -NoNewline $Prompt
+    
     $inputBuffer = ""
+    $cursorIndex = 0
+
+    # Store origin position
+    $originLeft = [Console]::CursorLeft
+    $originTop  = [Console]::CursorTop
+
+    # Helper closure to calculate and set cursor position safely
+    $setCursor = {
+        param([int]$index)
+        $width = [Console]::BufferWidth
+        
+        $left = ($originLeft + $index) % $width
+        $top = $originTop + [math]::Floor(($originLeft + $index) / $width)
+        
+        if ($top -ge [Console]::BufferHeight) {
+            $top = [Console]::BufferHeight - 1
+        }
+        [Console]::SetCursorPosition($left, $top)
+    }
+
+    # Helper closure to redraw the search buffer
+    $redraw = {
+        &$setCursor 0
+        Write-Host -NoNewline "$inputBuffer "
+        &$setCursor $cursorIndex
+    }
 
     while ($true) {
         $keyInfo = [Console]::ReadKey($true)
@@ -24,22 +51,47 @@ function Read-SearchTermOrEscape {
             Write-Host ""
             return $null
         }
-
-        if ($keyInfo.Key -eq [ConsoleKey]::Enter) {
+        elseif ($keyInfo.Key -eq [ConsoleKey]::Enter) {
             Write-Host ""
             return $inputBuffer
         }
-
-        if ($keyInfo.Key -eq [ConsoleKey]::Backspace) {
-            if ($inputBuffer.Length -gt 0) {
-                $inputBuffer = $inputBuffer.Substring(0, $inputBuffer.Length - 1)
-                [Console]::Write("`b `b")
+        elseif ($keyInfo.Key -eq [ConsoleKey]::LeftArrow) {
+            if ($cursorIndex -gt 0) {
+                $cursorIndex--
+                &$setCursor $cursorIndex
             }
         }
-        # Append printable characters
+        elseif ($keyInfo.Key -eq [ConsoleKey]::RightArrow) {
+            if ($cursorIndex -lt $inputBuffer.Length) {
+                $cursorIndex++
+                &$setCursor $cursorIndex
+            }
+        }
+        elseif ($keyInfo.Key -eq [ConsoleKey]::Home) {
+            $cursorIndex = 0
+            &$setCursor $cursorIndex
+        }
+        elseif ($keyInfo.Key -eq [ConsoleKey]::End) {
+            $cursorIndex = $inputBuffer.Length
+            &$setCursor $cursorIndex
+        }
+        elseif ($keyInfo.Key -eq [ConsoleKey]::Backspace) {
+            if ($cursorIndex -gt 0) {
+                $inputBuffer = $inputBuffer.Remove($cursorIndex - 1, 1)
+                $cursorIndex--
+                &$redraw
+            }
+        }
+        elseif ($keyInfo.Key -eq [ConsoleKey]::Delete) {
+            if ($cursorIndex -lt $inputBuffer.Length) {
+                $inputBuffer = $inputBuffer.Remove($cursorIndex, 1)
+                &$redraw
+            }
+        }
         elseif (-not [char]::IsControl($keyInfo.KeyChar)) {
-            $inputBuffer += $keyInfo.KeyChar
-            [Console]::Write($keyInfo.KeyChar)
+            $inputBuffer = $inputBuffer.Insert($cursorIndex, $keyInfo.KeyChar)
+            $cursorIndex++
+            &$redraw
         }
     }
 }

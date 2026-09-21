@@ -12,13 +12,15 @@ $script:AllowedSessionTypes = @("pomodoro_work", "short_break", "long_break", "f
 
 <#
 .SYNOPSIS
-    Reads an interactive line from console allowing user to cancel via the Escape key.
+    Reads an interactive line from console allowing user to cancel via the Escape key,
+    with full arrow-key cursor navigation support.
 #>
 function Read-ConsoleLineOrEscape {
     param (
         [string]$Prompt = ""
     )
 
+    # Fallback to standard input if not in an interactive terminal
     if (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
         return (Read-Host $Prompt)
     }
@@ -28,31 +30,90 @@ function Read-ConsoleLineOrEscape {
     }
 
     $inputBuffer = ""
+    $cursorIndex = 0
+
+    # Store the origin position where the user input starts
+    $originLeft = [Console]::CursorLeft
+    $originTop  = [Console]::CursorTop
+
+    # Helper closure to calculate and set cursor position with wrap-around support
+    $setCursor = {
+        param([int]$index)
+        $width = [Console]::BufferWidth
+        
+        # Calculate horizontal and vertical offsets
+        $left = ($originLeft + $index) % $width
+        $top = $originTop + [math]::Floor(($originLeft + $index) / $width)
+        
+        # Ensure we do not crash by exceeding the buffer height
+        if ($top -ge [Console]::BufferHeight) {
+            $top = [Console]::BufferHeight - 1
+        }
+        [Console]::SetCursorPosition($left, $top)
+    }
+
+    # Helper closure to redraw the current input buffer
+    $redraw = {
+        &$setCursor 0
+        Write-Host -NoNewline "$inputBuffer "
+        &$setCursor $cursorIndex
+    }
 
     while ($true) {
         $keyInfo = [Console]::ReadKey($true)
 
-        # Detect Escape key press to cancel immediately
         if ($keyInfo.Key -eq [ConsoleKey]::Escape) {
             Write-Host ""
             return $null
         }
-
-        if ($keyInfo.Key -eq [ConsoleKey]::Enter) {
+        elseif ($keyInfo.Key -eq [ConsoleKey]::Enter) {
             Write-Host ""
             return $inputBuffer
         }
-
-        if ($keyInfo.Key -eq [ConsoleKey]::Backspace) {
-            if ($inputBuffer.Length -gt 0) {
-                $inputBuffer = $inputBuffer.Substring(0, $inputBuffer.Length - 1)
-                [Console]::Write("`b `b")
+        elseif ($keyInfo.Key -eq [ConsoleKey]::LeftArrow) {
+            # Move cursor backward
+            if ($cursorIndex -gt 0) {
+                $cursorIndex--
+                &$setCursor $cursorIndex
             }
         }
-        # Append printable characters
+        elseif ($keyInfo.Key -eq [ConsoleKey]::RightArrow) {
+            # Move cursor forward
+            if ($cursorIndex -lt $inputBuffer.Length) {
+                $cursorIndex++
+                &$setCursor $cursorIndex
+            }
+        }
+        elseif ($keyInfo.Key -eq [ConsoleKey]::Home) {
+            # Jump to the beginning of the line
+            $cursorIndex = 0
+            &$setCursor $cursorIndex
+        }
+        elseif ($keyInfo.Key -eq [ConsoleKey]::End) {
+            # Jump to the end of the line
+            $cursorIndex = $inputBuffer.Length
+            &$setCursor $cursorIndex
+        }
+        elseif ($keyInfo.Key -eq [ConsoleKey]::Backspace) {
+            # Remove character immediately before the cursor
+            if ($cursorIndex -gt 0) {
+                $inputBuffer = $inputBuffer.Remove($cursorIndex - 1, 1)
+                $cursorIndex--
+                &$redraw
+            }
+        }
+        elseif ($keyInfo.Key -eq [ConsoleKey]::Delete) {
+            # Remove character exactly at the cursor position
+            if ($cursorIndex -lt $inputBuffer.Length) {
+                $inputBuffer = $inputBuffer.Remove($cursorIndex, 1)
+                &$redraw
+            }
+        }
         elseif (-not [char]::IsControl($keyInfo.KeyChar)) {
-            $inputBuffer += $keyInfo.KeyChar
-            [Console]::Write($keyInfo.KeyChar)
+            # Insert typed character at the current cursor index
+            $inputBuffer = $inputBuffer.Insert($cursorIndex, $keyInfo.KeyChar)
+            $cursorIndex++
+            &$redraw
         }
     }
 }
