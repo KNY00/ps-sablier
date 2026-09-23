@@ -4,6 +4,10 @@
 #>
 [CmdletBinding()]
 param(
+    # Initial session draft description
+    [Parameter(Mandatory = $false)]
+    [string]$DraftDescription = "",
+
     # Path used to store session metadata
     [Parameter(Mandatory = $false)]
     [ValidateNotNullOrEmpty()]
@@ -54,9 +58,10 @@ finally {
     Write-Host "`n"
 }
 
-# Return final output object
+# Return final output object with DraftDescription
 [PSCustomObject]@{
-    StartedAt   = [DateTimeOffset]::new($startTime).ToUnixTimeSeconds()
-    EndedAt     = [DateTimeOffset]::new($endTime).ToUnixTimeSeconds()
-    IsCompleted = 1
+    StartedAt        = [DateTimeOffset]::new($startTime).ToUnixTimeSeconds()
+    EndedAt          = [DateTimeOffset]::new($endTime).ToUnixTimeSeconds()
+    IsCompleted      = 1
+    DraftDescription = $DraftDescription
 } | ConvertTo-Json -Compress | Set-Content -Path $ResultFile -Encoding UTF8

@@ -18,6 +18,20 @@ if ([string]::IsNullOrWhiteSpace($TrackMode)) {
 
 Show-SuccessMessage "Selected: $TrackMode"
 
+# Collect initial draft description prior to timer launch
+$promptHelperPath = Join-Path $PSScriptRoot "..\Private\Helpers\Prompt-SessionDescription.ps1"
+$initialDescription = if (Test-Path -Path $promptHelperPath) {
+    & $promptHelperPath
+} else {
+    Read-ConsoleLineOrEscape -Prompt "Enter session description (optional, [Esc] to cancel): "
+}
+
+# Gracefully abort if user pressed Escape during initial note entry
+if ($null -eq $initialDescription) {
+    Show-InfoMessage "Session setup cancelled."
+    return
+}
+
 # Shared transfer file used across external timer, fallback timer, and tracking modes
 $tempResult = "$env:TEMP\timer_session_$([System.Guid]::NewGuid().ToString('N')).json"
 
@@ -40,7 +54,11 @@ if ($TrackMode -eq 'session') {
     }
 
     if ($useExternal -and $timerExecutableAvailable) {
-        & "$PSScriptRoot\..\Private\Helpers\Start-Timer.ps1" -Duration $inputDuration -ResultFile $tempResult
+        & "$PSScriptRoot\..\Private\Helpers\Start-Timer.ps1" `
+            -Duration $inputDuration `
+            -Name "Pomodoro" `
+            -DraftDescription $initialDescription `
+            -ResultFile $tempResult
     }
     else {
         if ($useExternal -and -not $timerExecutableAvailable) {
@@ -48,10 +66,16 @@ if ($TrackMode -eq 'session') {
         }
 
         # Fallback timer invoked with identical duration format and the shared result file
-        & "$PSScriptRoot\..\Private\Helpers\Start-FallbackTimer.ps1" -Duration $inputDuration -SessionName "Pomodoro" -ResultFile $tempResult
+        & "$PSScriptRoot\..\Private\Helpers\Start-FallbackTimer.ps1" `
+            -Duration $inputDuration `
+            -SessionName "Pomodoro" `
+            -DraftDescription $initialDescription `
+            -ResultFile $tempResult
     }
 } elseif ($TrackMode -eq "free") {
-    & "$PSScriptRoot\..\Private\Helpers\Start-TimeTracking.ps1" -ResultFile $tempResult
+    & "$PSScriptRoot\..\Private\Helpers\Start-TimeTracking.ps1" `
+        -DraftDescription $initialDescription `
+        -ResultFile $tempResult
 } else {
     Remove-Item -Path $tempResult -Force -ErrorAction SilentlyContinue
     Write-Host "Session aborted."
@@ -74,8 +98,15 @@ if (Test-Path $tempResult) {
 }
 
 if ($null -ne $data) {
+    # Extract DraftDescription from file payload if present, or fallback to local variable
+    $effectiveDraft = if ($data.PSObject.Properties.Name -contains "DraftDescription") {
+        $data.DraftDescription
+    } else {
+        $initialDescription
+    }
+
     & "$PSScriptRoot\..\Private\Helpers\Show-Notification.ps1"
-    & "$PSScriptRoot\..\Private\Helpers\Invoke-SessionCreationWorkflow.ps1" -SessionData $data
+    & "$PSScriptRoot\..\Private\Helpers\Invoke-SessionCreationWorkflow.ps1" -SessionData $data -InitialDescription $effectiveDraft
 } else {
     Show-InfoMessage "Session tracking was cancelled or did not produce session data."
 }

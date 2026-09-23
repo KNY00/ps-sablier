@@ -12,6 +12,10 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$Name = "Session",
 
+    # Initial session draft description
+    [Parameter(Mandatory = $false)]
+    [string]$DraftDescription = "",
+
     # Path used to store session metadata
     [Parameter(Mandatory = $false)]
     [ValidateNotNullOrEmpty()]
@@ -27,9 +31,10 @@ $SessionStart = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 # Record session end time
 $SessionEnd = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-# Save metadata to disk instead of stdout
+# Save metadata to disk with DraftDescription property
 [PSCustomObject]@{
-    StartedAt   = $SessionStart
-    EndedAt     = $SessionEnd
-    IsCompleted = 1
+    StartedAt        = $SessionStart
+    EndedAt          = $SessionEnd
+    IsCompleted      = 1
+    DraftDescription = $DraftDescription
 } | ConvertTo-Json -Compress | Set-Content -Path $ResultFile -Encoding UTF8

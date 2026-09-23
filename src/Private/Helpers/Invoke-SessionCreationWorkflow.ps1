@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $true)]
-    [PSCustomObject]$SessionData
+    [PSCustomObject]$SessionData,
+
+    [Parameter(Mandatory = $false)]
+    [string]$InitialDescription = ""
 )
 
 Import-Module SessionController -ErrorAction Stop
@@ -15,8 +18,15 @@ if ($null -eq $selectedType) {
     return
 }
 
-# Prompt for session notes with abort capability on Escape
-$notes = Read-SessionNotes
+# Delegate note acquisition and confirmation to the dedicated helper
+$promptHelperPath = Join-Path $PSScriptRoot "Prompt-SessionDescription.ps1"
+
+if (Test-Path -Path $promptHelperPath) {
+    $notes = & $promptHelperPath -InitialDescription $InitialDescription
+} else {
+    $notes = Read-SessionNotes -CurrentNotes $InitialDescription
+}
+
 if ($null -eq $notes) {
     Show-InfoMessage "Session creation cancelled."
     return

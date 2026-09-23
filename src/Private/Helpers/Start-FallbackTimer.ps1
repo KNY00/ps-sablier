@@ -9,6 +9,10 @@ param (
     [Parameter(Mandatory = $false, Position = 1)]
     [string]$SessionName = "Session",
 
+    # Initial session draft description to carry over
+    [Parameter(Mandatory = $false)]
+    [string]$DraftDescription = "",
+
     # Path used to store session metadata (unified with Start-Timer.ps1)
     [Parameter(Mandatory = $false)]
     [ValidateNotNullOrEmpty()]
@@ -88,7 +92,6 @@ function Format-SessionHeader {
 .SYNOPSIS
     Builds the textual representation of the sand progress bar based on elapsed progress ratio.
 #>
-
 function Get-SandProgressBar {
     [CmdletBinding()]
     [OutputType([string])]
@@ -308,12 +311,13 @@ if ($completed) {
     # Record session end time
     $SessionEnd = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-    # Export session metadata to shared JSON file
+    # Export session metadata with DraftDescription to shared JSON file
     if (-not [string]::IsNullOrWhiteSpace($ResultFile)) {
         [PSCustomObject]@{
-            StartedAt   = $SessionStart
-            EndedAt     = $SessionEnd
-            IsCompleted = 1
+            StartedAt        = $SessionStart
+            EndedAt          = $SessionEnd
+            IsCompleted      = 1
+            DraftDescription = $DraftDescription
         } | ConvertTo-Json -Compress | Set-Content -Path $ResultFile -Encoding UTF8
     }
 }
