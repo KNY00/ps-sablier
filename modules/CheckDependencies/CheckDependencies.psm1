@@ -155,7 +155,7 @@ function Test-ProjectPrerequisite {
         }
     }
     catch {
-        $originalError =$_.Exception.Message
+        $originalError = $_.Exception.Message
         Write-Host ""
         Write-Warning "Run ./bootstrap.ps1 to initialize the database or restore project dependencies."
         throw "$originalError"

@@ -366,6 +366,7 @@ function Invoke-TaskLinkingPrompt {
 
 # Explicitly expose functions to callers
 Export-ModuleMember -Function `
+    Read-ConsoleLineOrEscape, `
     Select-SessionType, `
     Read-SessionNotes, `
     Select-SessionCompletion, `

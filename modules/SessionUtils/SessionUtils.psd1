@@ -35,6 +35,7 @@ PowerShellVersion = '5.1'
 RequiredModules = @('MenuUtils', 'UiNotificationUtils', 'SessionController', 'TaskController')
 
 FunctionsToExport = @(
+    'Read-ConsoleLineOrEscape',
     'Select-SessionType',
     'Read-SessionNotes',
     'Select-SessionCompletion',

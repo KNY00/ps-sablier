@@ -2,12 +2,20 @@ Import-Module CheckDependencies -ErrorAction Stop
 Import-Module MenuUtils -ErrorAction Stop
 Import-Module UiNotificationUtils -ErrorAction Stop
 Import-Module UserSettings -ErrorAction Stop
+Import-Module SessionUtils -ErrorAction Stop
 
 Test-ProjectPrerequisite
 
 $options = @("session", "free")
 
 $TrackMode = Show-Menu -Title "How would like to track your time:" -Options $options
+
+# Gracefully quit if user cancelled the menu with Escape
+if ([string]::IsNullOrWhiteSpace($TrackMode)) {
+    Write-Host "Session aborted."
+    return
+}
+
 Show-SuccessMessage "Selected: $TrackMode"
 
 # Shared transfer file used across external timer, fallback timer, and tracking modes
@@ -17,8 +25,16 @@ if ($TrackMode -eq 'session') {
     $useExternal = Get-UserUseExternalTimer
     $timerExecutableAvailable = [bool](Get-Command -Name "timer" -CommandType Application -ErrorAction SilentlyContinue)
 
-    # Prompt user with the same duration format (5s, 8m, 13h, etc.) for both timers
-    $inputDuration = Read-Host "Enter timer duration (e.g., 5s, 8m, 13h, 25m) [Default: 25m]"
+    # Prompt user with Escape key cancellation support
+    $inputDuration = Read-ConsoleLineOrEscape -Prompt "Enter timer duration (e.g., 5s, 8m, 13h, 25m) [Default: 25m, Esc to cancel]: "
+    
+    # Gracefully exit if Escape was pressed
+    if ($null -eq $inputDuration) {
+        Remove-Item -Path $tempResult -Force -ErrorAction SilentlyContinue
+        Show-InfoMessage "Timer setup cancelled."
+        return
+    }
+
     if ([string]::IsNullOrWhiteSpace($inputDuration)) {
         $inputDuration = "25m"
     }

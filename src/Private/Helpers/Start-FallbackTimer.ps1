@@ -27,18 +27,19 @@ function Convert-DurationToSeconds {
         [string]$DurationString
     )
 
-    $trimmed =$DurationString.Trim().ToLower()
+    $trimmed = $DurationString.Trim().ToLower()
 
     # Match compound duration tokens (e.g., 1h30m, 8m, 45s)
     $strMatches = [regex]::Matches($trimmed, '(\d+(?:\.\d+)?)\s*([smhd])')
     
-    if ($strMatches.Count -gt 0) {$totalSeconds = 0.0
+    if ($strMatches.Count -gt 0) {
+        $totalSeconds = 0.0
         foreach ($match in $strMatches) {
             $value = [double]::Parse($match.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
-            $unit =$match.Groups[2].Value
+            $unit = $match.Groups[2].Value
 
             switch ($unit) {
-                's' { $totalSeconds +=$value }
+                's' { $totalSeconds += $value }
                 'm' { $totalSeconds += ($value * 60) }
                 'h' { $totalSeconds += ($value * 3600) }
                 'd' { $totalSeconds += ($value * 86400) }
@@ -49,7 +50,7 @@ function Convert-DurationToSeconds {
 
     # Fallback if a plain numeric value without unit was entered (default to minutes)
     $parsedNum = 0.0
-    if ([double]::TryParse($trimmed, [ref]$parsedNum) -and$parsedNum -gt 0) {
+    if ([double]::TryParse($trimmed, [ref]$parsedNum) -and $parsedNum -gt 0) {
         return ($parsedNum * 60)
     }
 
@@ -193,9 +194,11 @@ function Render-SessionDisplay {
 <#
 .SYNOPSIS
     Runs the countdown timer updating both header and progress bar once every second.
+    Supports cancellation via the Escape key.
 #>
 function Show-SandLoadingBar {
     [CmdletBinding()]
+    [OutputType([bool])]
     param (
         [Parameter(Mandatory = $false, Position = 0)]
         [ValidateRange(1, [double]::MaxValue)]
@@ -208,6 +211,8 @@ function Show-SandLoadingBar {
     $sessionStartTime = Get-Date
     $originalCursorVisible = [Console]::CursorVisible
     [Console]::CursorVisible = $false
+
+    $cancelled = $false
 
     try {
         $totalWidth = 60
@@ -225,9 +230,17 @@ function Show-SandLoadingBar {
 
         # Update loop executing once every second
         for ($sec = 0; $sec -le $totalSeconds; $sec++) {
-            # Discard any buffered keystrokes
+            # Check for Escape key press
             while ([Console]::KeyAvailable) {
-                $null = [Console]::ReadKey($true)
+                $key = [Console]::ReadKey($true)
+                if ($key.Key -eq [ConsoleKey]::Escape) {
+                    $cancelled = $true
+                    break
+                }
+            }
+
+            if ($cancelled) {
+                break
             }
 
             $remainingSeconds = [math]::Max(0, $totalSeconds - $sec)
@@ -245,17 +258,33 @@ function Show-SandLoadingBar {
 
             # Pace to the next second boundary taking elapsed time into account
             $nextTickMs = ($sec + 1) * 1000
-            $sleepMs = [int]($nextTickMs - $stopwatch.ElapsedMilliseconds)
+            while ($stopwatch.ElapsedMilliseconds -lt $nextTickMs) {
+                if ([Console]::KeyAvailable) {
+                    $key = [Console]::ReadKey($true)
+                    if ($key.Key -eq [ConsoleKey]::Escape) {
+                        $cancelled = $true
+                        break
+                    }
+                }
+                Start-Sleep -Milliseconds 50
+            }
 
-            if ($sleepMs -gt 0) {
-                Start-Sleep -Milliseconds $sleepMs
+            if ($cancelled) {
+                break
             }
         }
 
-        # Safe cursor positioning below rendered area upon completion
+        # Safe cursor positioning below rendered area upon exit
         Set-SafeCursorPosition -Left 0 -Top ($startTop + 2)
         Write-Host ""
-        Write-Host "Loading Complete!"
+        
+        if ($cancelled) {
+            Write-Host "Timer cancelled." -ForegroundColor Yellow
+            return $false
+        } else {
+            Write-Host "Loading Complete!"
+            return $true
+        }
     }
     finally {
         while ([Console]::KeyAvailable) {
@@ -272,16 +301,19 @@ $totalDurationSeconds = Convert-DurationToSeconds -DurationString $Duration
 $SessionStart = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 # Execute countdown bar
-Show-SandLoadingBar -DurationSeconds $totalDurationSeconds -SessionName $SessionName
+$completed = Show-SandLoadingBar -DurationSeconds $totalDurationSeconds -SessionName $SessionName
 
-# Record session end time
-$SessionEnd = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+# Only persist and export session data if the timer ran to completion
+if ($completed) {
+    # Record session end time
+    $SessionEnd = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-# Export session metadata to shared JSON file
-if (-not [string]::IsNullOrWhiteSpace($ResultFile)) {
-    [PSCustomObject]@{
-        StartedAt   = $SessionStart
-        EndedAt     = $SessionEnd
-        IsCompleted = 1
-    } | ConvertTo-Json -Compress | Set-Content -Path $ResultFile -Encoding UTF8
+    # Export session metadata to shared JSON file
+    if (-not [string]::IsNullOrWhiteSpace($ResultFile)) {
+        [PSCustomObject]@{
+            StartedAt   = $SessionStart
+            EndedAt     = $SessionEnd
+            IsCompleted = 1
+        } | ConvertTo-Json -Compress | Set-Content -Path $ResultFile -Encoding UTF8
+    }
 }
