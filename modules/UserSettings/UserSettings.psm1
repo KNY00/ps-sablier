@@ -7,6 +7,7 @@ $script:DefaultSettings = [ordered]@{
     SoundFilePath    = $false
     SkipIntroduction = $false
     UseExternalTimer = $false
+    LlmModelName     = "gemini-3.5-flash-lite"
 }
 
 function Get-UserSetting {
@@ -34,6 +35,9 @@ function Get-UserSetting {
             }
             if (-not ($loadedSettings.PSObject.Properties.Name -contains "UseExternalTimer")) {
                 $loadedSettings | Add-Member -MemberType NoteProperty -Name "UseExternalTimer" -Value $script:DefaultSettings.UseExternalTimer
+            }
+            if (-not ($loadedSettings.PSObject.Properties.Name -contains "LlmModelName")) {
+                $loadedSettings | Add-Member -MemberType NoteProperty -Name "LlmModelName" -Value $script:DefaultSettings.LlmModelName
             }
 
             $loadedSettings
@@ -89,6 +93,21 @@ function Get-UserUseExternalTimer {
     }
 }
 
+<#
+.SYNOPSIS
+    Retrieves the configured LLM model name from user settings.
+#>
+function Get-UserLlmModelName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    process {
+        $settings = Get-UserSetting
+        [string]$settings.LlmModelName
+    }
+}
+
 function Set-UserSetting {
     [CmdletBinding()]
     param(
@@ -108,7 +127,10 @@ function Set-UserSetting {
         [Nullable[bool]]$SkipIntroduction,
 
         [Parameter(Mandatory = $false)]
-        [Nullable[bool]]$UseExternalTimer
+        [Nullable[bool]]$UseExternalTimer,
+
+        [Parameter(Mandatory = $false)]
+        [string]$LlmModelName
     )
 
     process {
@@ -140,14 +162,23 @@ function Set-UserSetting {
             $script:DefaultSettings.UseExternalTimer
         }
 
+        $targetModelName = if ($PSBoundParameters.ContainsKey('LlmModelName')) {
+            $LlmModelName
+        } elseif ($current.PSObject.Properties.Name -contains "LlmModelName") {
+            [string]$current.LlmModelName
+        } else {
+            $script:DefaultSettings.LlmModelName
+        }
+
         $settingsObject = [ordered]@{
             SoundFilePath    = $targetSound
             SkipIntroduction = $targetSkipIntro
             UseExternalTimer = $targetExternalTimer
+            LlmModelName     = $targetModelName
         }
 
         foreach ($prop in $current.PSObject.Properties) {
-            if ($prop.Name -notin @("SoundFilePath", "SkipIntroduction", "UseExternalTimer")) {
+            if ($prop.Name -notin @("SoundFilePath", "SkipIntroduction", "UseExternalTimer", "LlmModelName")) {
                 $settingsObject[$prop.Name] = $prop.Value
             }
         }
@@ -167,4 +198,5 @@ Export-ModuleMember -Function `
     Get-UserSoundPath, `
     Get-UserSkipIntro, `
     Get-UserUseExternalTimer, `
+    Get-UserLlmModelName, `
     Set-UserSetting

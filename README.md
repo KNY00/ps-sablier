@@ -13,62 +13,35 @@ A lightweight, terminal-based focus timer and Pomodoro tracker written in PowerS
   <img src="assets/demo-start-tracking.gif" alt="Demo Start Tracking" />
 </div>
 
+Powered by a feature-rich MCP server for seamless agent control
+<div align="center">
+
+  <img src="assets/demo-mcp.gif" alt="MCP server capabilities" />
+</div>
+
 ### Key Features:
 
 - ⏱ **Session Timer & Free Tracking**: Configurable timer (e.g., `25m`, `1h`) with terminal visual progress bars (via the `timer` tool) or an open stopwatch with pause/resume support.
 - 🔔 **Notifications & Sound Alerts**: Native Windows Toast notifications (WinRT) and customizable audio cues (`.wav`) at the end of each session.
 - 📝 **Task Manager**: Create, update, toggle status (Pending / Completed), full-text search, and cascade deletion.
 - 📊 **Session Manager**: Log past sessions manually, inspect recent history, and link tracked intervals to existing tasks.
-
+- 🤖 **ps-sablier** integrates a full ecosystem allowing local and Large Language Models (LLMs) to control the application end-to-end.
 
 ## Architecture & Requirements
 
-- **Operating System**: Windows 10 / Windows 11 (x64 or ARM64)
-- **PowerShell Version**: Windows PowerShell 5.1 (Desktop) or PowerShell 7.4+ (Core)
-- **Database Engine**: Embedded `Microsoft.Data.Sqlite` (.NET runtime assemblies managed by `SQLiteLoader`)
-- **Pester** *(Development/Testing only)*: Pester version 6.x+ (isolated runner included)
+### System Requirements
+- **Operating System:** Windows (x64 or ARM64). *The `SQLiteLoader` module is strictly restricted to Windows for the native loading of `e_sqlite3.dll`.*
+- **PowerShell:** Windows PowerShell 5.1 (Desktop) or PowerShell 7+ (Core).
 
-> [!WARNING]
->
-> **Breaking Change**: Support for the external `sqlite3` CLI executable and the `PSSQLite` PowerShell module has been completely removed. Database access is handled directly in-process via .NET assemblies.
+### PowerShell Modules
+The application uses the local secret manager to securely store your API keys. If these modules are missing, the startup script will attempt to install them automatically for the current user:
+- `Microsoft.PowerShell.SecretManagement`
+- `Microsoft.PowerShell.SecretStore`
 
-## Project Structure
+### Optional Components
+- **External Timer (`timer.exe`):** The application will offer to download the third-party `timer` executable (caarlos0/timer v1.4.6) for time display. **This component is 100% optional.** If you decline or if it is not found, a built-in native timer with a progress bar ("sand timer") will be used as a fallback.
+- **LLM API Key (Google Gemini, OpenAI, Groq, Mistral, etc.):** Required only if you wish to use the AI Agent features (via `Invoke-SablierAgent.ps1` or session notes correction via `Invoke-SessionLLMCorrection`). You can configure your key (e.g., `GEMINI_API_KEY`) through the *Settings Manager* menu.
 
-```text
-ps-sablier/
-├── bootstrap.ps1                 # Dependency preflight, database init, and optional setup
-├── Start.ps1                     # Main interactive CLI entrypoint
-├── assets/
-│   └── db.sqlite                 # Application SQLite database
-├── modules/
-│   ├── CheckDependencies/        # Pre-flight environment and driver validation
-│   ├── MenuUtils/                # Arrow-key navigable console menus
-│   ├── Notification/             # Toast notifications (PS 5.1 & PS 7+) and audio cues
-│   ├── SessionController/        # Time session database controller and DTO models
-│   ├── SessionUtils/             # Interactive prompts for session creation and task linking
-│   ├── SQLiteLoader/             # Architecture-aware .NET SQLite driver and hash verifier
-│   ├── SqliteInstaller/          # Installer for embedded .NET SQLite assemblies
-│   ├── SqliteUtils/              # Unified database execution wrapper using prepared statements
-│   ├── TaskController/           # Task management database controller and DTO models
-│   ├── TimeUtils/                # Interactive arrow-based date and time picker
-│   ├── UiNotificationUtils/      # Formatted console stream messages (Info, Success, Error)
-│   └── UserSettings/             # Local configuration manager (~/AppData/Local/ps-sablier)
-├── src/
-│   ├── Assets/
-│   │   ├── notification-icon.png # Toast notification icon
-│   │   └── schema.sql            # Canonical database schema
-│   ├── Private/Helpers/          # Internal workflow scripts (Timer, Tracking, Animation)
-│   └── Public/                   # Interactive subsystem menus (Tasks, Sessions, Settings)
-├── Tests/
-│   ├── Invoke-AllTests.ps1       # Isolated test runner for Pester 6+
-│   ├── TestHelper.ps1            # Temporary in-memory/isolated database fixtures
-│   ├── SessionController.Tests.ps1
-│   └── TaskController.Tests.ps1
-└── tools/
-    ├── Initialize-Database.ps1   # Applies schema.sql to the database via SqliteUtils
-    ├── Install-Sqlite.ps1        # Ensures .NET SQLite assemblies are downloaded and verified
-    └── Install-Timer.ps1         # Downloads timer.exe with SHA256 checksum verification
-```
 
 ## Getting Started
 
@@ -129,6 +102,19 @@ Configuration is stored in `%LOCALAPPDATA%\ps-sablier\settings.json`. You can in
 
 * **Sound File Path**: Path to a custom `.wav` sound file for notifications, or set to `$false` to fall back to system audio alerts.
 * **Skip Introduction**: Toggle the startup ASCII hourglass animation on or off.
+
+## AI Agent & LLM Setup
+
+To enable full support for the interactive AI Agent (`Ask Agent`) and session analysis / note correction features, configure a Google AI Studio API key by doing this :
+
+1. Launch the application:
+
+```powershell
+.\Start.ps1
+```
+2. Navigate to Settings > Configure Gemini API Key > Set / Update Gemini API Key.
+
+3. Paste your Gemini API key (input will be masked). The key is stored securely in your local secret store (SecretStore).
 
 ## Running Tests
 

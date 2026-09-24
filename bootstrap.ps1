@@ -18,6 +18,14 @@ Test-SqliteAvailable | Out-Null
 
 & ".\tools\Initialize-Database.ps1"
 
+Show-InfoMessage "Initialize secret key registration service"
+
+# Initialize Secret Management vault for API Keys
+Import-Module SecretKeyService -ErrorAction SilentlyContinue
+if (Get-Command -Name "Initialize-SecretVaultService" -ErrorAction SilentlyContinue) {
+    Initialize-SecretVaultService
+}
+
 # Check if timer binary is already available in PATH
 $timerAvailable = [bool](Get-Command -Name "timer" -CommandType Application -ErrorAction SilentlyContinue)
 

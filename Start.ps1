@@ -51,17 +51,15 @@ $publicScriptsDir = Join-Path $ProjectRoot "src\Public"
 $scriptTracking = Join-Path $publicScriptsDir "Start-Tracking.ps1"
 $scriptTasks    = Join-Path $publicScriptsDir "Invoke-TaskManager.ps1"
 $scriptSessions = Join-Path $publicScriptsDir "Invoke-SessionManager.ps1"
+$scriptAgent    = Join-Path $publicScriptsDir "Invoke-AskAgent.ps1"
 $scriptSettings = Join-Path $publicScriptsDir "Invoke-SettingsManager.ps1"
 
 # Menu configuration conforming to specifications:
-# 1. Start Tracking first
-# 2. Intermediate scripts
-# 3. Settings right before exit
-# 4. Exit / Close option
 $menuOptions = @(
     "Start Tracking",
     "Task Manager",
     "Session Manager",
+    "Ask Agent",
     "Settings",
     "Exit"
 )
@@ -100,6 +98,15 @@ while ($true) {
             } else {
                 Show-ErrorMessage "Script not found at '$scriptSessions'."
             }
+        }
+        
+        "Ask Agent" {
+            if (Test-Path -Path $scriptAgent) {
+                & $scriptAgent
+            } else {
+                Show-ErrorMessage "Script not found at '$scriptAgent'."
+            }
+            Pause
         }
 
         "Settings" {

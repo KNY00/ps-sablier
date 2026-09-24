@@ -39,7 +39,8 @@ FunctionsToExport = @(
     'Set-UserSetting',
     'Get-UserSoundPath',
     'Get-UserSkipIntro',
-    'Get-UserUseExternalTimer'
+    'Get-UserUseExternalTimer',
+    'Get-UserLlmModelName'
 )
 
 # Cmdlets to export from this module
